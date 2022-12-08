@@ -64,7 +64,7 @@ baseurl=file://%s
 
 enabled=1 
 
-gpgcheck=1
+gpgcheck=0
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
 EOF
 `, path)
