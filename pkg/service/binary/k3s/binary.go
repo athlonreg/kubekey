@@ -22,10 +22,10 @@ import (
 	"text/template"
 	"time"
 
-	infrav1 "github.com/kubesphere/kubekey/api/v1beta1"
-	"github.com/kubesphere/kubekey/pkg/service/operation"
-	"github.com/kubesphere/kubekey/pkg/service/operation/file"
-	"github.com/kubesphere/kubekey/pkg/service/util"
+	infrav1 "github.com/kubesphere/kubekey/v3/api/v1beta1"
+	"github.com/kubesphere/kubekey/v3/pkg/service/operation"
+	"github.com/kubesphere/kubekey/v3/pkg/service/operation/file"
+	"github.com/kubesphere/kubekey/v3/pkg/service/util"
 )
 
 //go:embed templates
@@ -105,5 +105,41 @@ func (s *Service) GenerateK3sInstallScript() error {
 	if err := svc.Chmod("+x"); err != nil {
 		return err
 	}
+	return nil
+}
+
+// UpgradeDownload downloads upgrade binaries.
+func (s *Service) UpgradeDownload(timeout time.Duration) error {
+	return s.downloadUpgradeBinaries(timeout)
+}
+
+// downloadUpgradeBinaries downloads k3s binary.
+func (s *Service) downloadUpgradeBinaries(timeout time.Duration) error {
+	k3s, err := s.getK3sService(s.instanceScope.InPlaceUpgradeVersion(), s.instanceScope.Arch())
+	if err != nil {
+		return err
+	}
+
+	binaries := []operation.Binary{
+		k3s,
+	}
+
+	zone := s.scope.ComponentZone()
+	host := s.scope.ComponentHost()
+	overrideMap := make(map[string]infrav1.Override)
+	for _, o := range s.scope.ComponentOverrides() {
+		overrideMap[o.ID+o.Version+o.Arch] = o
+	}
+
+	for _, b := range binaries {
+		override := overrideMap[b.ID()+b.Version()+b.Arch()]
+		if err := util.DownloadAndCopy(s.instanceScope, b, zone, host, override.Path, override.URL, override.Checksum.Value, timeout); err != nil {
+			return err
+		}
+		if err := b.Chmod("+x"); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

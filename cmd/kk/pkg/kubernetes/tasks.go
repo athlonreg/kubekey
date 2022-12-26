@@ -34,22 +34,22 @@ import (
 	kube "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	kubekeyv1alpha2 "github.com/kubesphere/kubekey/cmd/kk/apis/kubekey/v1alpha2"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/common"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/core/action"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/core/connector"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/core/logger"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/core/prepare"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/core/task"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/core/util"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/etcd"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/files"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/images"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/kubernetes/templates"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/kubernetes/templates/v1beta2"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/plugins/dns"
-	dnsTemplates "github.com/kubesphere/kubekey/cmd/kk/pkg/plugins/dns/templates"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/utils"
+	kubekeyv1alpha2 "github.com/kubesphere/kubekey/v3/cmd/kk/apis/kubekey/v1alpha2"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/common"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/action"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/connector"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/logger"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/prepare"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/task"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/util"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/etcd"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/files"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/images"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/kubernetes/templates"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/kubernetes/templates/v1beta2"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/plugins/dns"
+	dnsTemplates "github.com/kubesphere/kubekey/v3/cmd/kk/pkg/plugins/dns/templates"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/utils"
 )
 
 type GetClusterStatus struct {
@@ -491,7 +491,7 @@ type FindNode struct {
 func (f *FindNode) Execute(runtime connector.Runtime) error {
 	var resArr []string
 	res, err := runtime.GetRunner().Cmd(
-		"sudo -E /usr/local/bin/kubectl get nodes | grep -v NAME | grep -v 'master\\|control-plane' | awk '{print $1}'",
+		"sudo -E /usr/local/bin/kubectl get nodes | awk '$3 !~ /master|control-plane|ROLES/ {print $1}'",
 		true)
 	if err != nil {
 		return errors.Wrap(errors.WithStack(err), "kubectl get nodes failed")

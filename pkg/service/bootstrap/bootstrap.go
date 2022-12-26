@@ -25,9 +25,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/kubesphere/kubekey/pkg/service/operation/directory"
-	"github.com/kubesphere/kubekey/pkg/service/operation/file"
-	"github.com/kubesphere/kubekey/pkg/util/filesystem"
+	"github.com/kubesphere/kubekey/v3/pkg/service/operation/directory"
+	"github.com/kubesphere/kubekey/v3/pkg/service/operation/file"
+	"github.com/kubesphere/kubekey/v3/pkg/util/filesystem"
 )
 
 //go:embed templates
@@ -147,6 +147,16 @@ func (s *Service) ExecInitScript() error {
 	if _, err := s.sshClient.SudoCmd(svc.RemotePath()); err != nil {
 		return err
 	}
+	return nil
+}
+
+// KubeadmReset resets the Kubernetes by using kubeadm.
+func (s *Service) KubeadmReset(criSocket string) error {
+	cmd := "kubeadm reset -f"
+	if criSocket != "" {
+		cmd = cmd + " --cri-socket " + criSocket
+	}
+	_, _ = s.sshClient.SudoCmd(cmd)
 	return nil
 }
 

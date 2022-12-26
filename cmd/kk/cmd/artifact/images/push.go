@@ -23,15 +23,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
-	"github.com/kubesphere/kubekey/cmd/kk/cmd/options"
-	"github.com/kubesphere/kubekey/cmd/kk/cmd/util"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/artifact"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/bootstrap/precheck"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/common"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/core/module"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/core/pipeline"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/filesystem"
-	"github.com/kubesphere/kubekey/cmd/kk/pkg/images"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/cmd/options"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/cmd/util"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/artifact"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/common"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/module"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/pipeline"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/filesystem"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/images"
 )
 
 type ArtifactImagesPushOptions struct {
@@ -122,7 +121,6 @@ func newImagesPushPipeline(runtime *common.KubeRuntime) error {
 	noArtifact := runtime.Arg.Artifact == ""
 
 	m := []module.Module{
-		&precheck.GreetingsModule{},
 		&artifact.UnArchiveModule{Skip: noArtifact},
 		&images.CopyImagesToRegistryModule{ImagePath: runtime.Arg.ImagesDir},
 		&filesystem.ChownWorkDirModule{},

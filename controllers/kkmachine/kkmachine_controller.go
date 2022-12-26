@@ -1,24 +1,25 @@
 /*
-Copyright 2022 The KubeSphere Authors.
+ Copyright 2022 The KubeSphere Authors.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+     http://www.apache.org/licenses/LICENSE-2.0
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
 */
 
-package controllers
+package kkmachine
 
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -43,10 +44,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	infrav1 "github.com/kubesphere/kubekey/api/v1beta1"
-	"github.com/kubesphere/kubekey/pkg"
-	"github.com/kubesphere/kubekey/pkg/scope"
-	"github.com/kubesphere/kubekey/pkg/util"
+	infrav1 "github.com/kubesphere/kubekey/v3/api/v1beta1"
+	"github.com/kubesphere/kubekey/v3/pkg"
+	"github.com/kubesphere/kubekey/v3/pkg/scope"
+	"github.com/kubesphere/kubekey/v3/util"
 )
 
 var (
@@ -59,9 +60,10 @@ const (
 	InstanceIDIndex = ".spec.instanceID"
 )
 
-// KKMachineReconciler reconciles a KKMachine object
-type KKMachineReconciler struct {
+// Reconciler reconciles a KKMachine object
+type Reconciler struct {
 	client.Client
+	mutex            sync.Mutex
 	Scheme           *runtime.Scheme
 	Recorder         record.EventRecorder
 	Tracker          *remote.ClusterCacheTracker
@@ -70,7 +72,7 @@ type KKMachineReconciler struct {
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *KKMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
+func (r *Reconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, options controller.Options) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	c, err := ctrl.NewControllerManagedBy(mgr).
@@ -106,15 +108,13 @@ func (r *KKMachineReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Man
 	)
 }
 
-//+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kkmachines,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kkmachines/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kkmachines/finalizers,verbs=update
+//+kubebuilder:rbac:groups=infrastructure.cluster.x-k8s.io,resources=kkmachines;kkmachines/status;kkmachines/finalizers,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=cluster.x-k8s.io,resources=machines;machines/status,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=secrets;,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 //+kubebuilder:rbac:groups="",resources=events,verbs=get;list;watch;create;update;patch
 
-func (r *KKMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, retErr error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (_ ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Fetch the KKMachine.
@@ -165,6 +165,7 @@ func (r *KKMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// Create the machine scope
 	machineScope, err := scope.NewMachineScope(scope.MachineScopeParams{
 		Client:       r.Client,
+		Logger:       &log,
 		Cluster:      cluster,
 		Machine:      machine,
 		InfraCluster: infraCluster,
@@ -190,7 +191,7 @@ func (r *KKMachineReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return r.reconcileNormal(ctx, machineScope, infraCluster, infraCluster)
 }
 
-func (r *KKMachineReconciler) reconcileDelete(ctx context.Context, machineScope *scope.MachineScope) (ctrl.Result, error) {
+func (r *Reconciler) reconcileDelete(ctx context.Context, machineScope *scope.MachineScope) (ctrl.Result, error) {
 	machineScope.Info("Reconcile KKMachine delete")
 
 	// Set the InstanceReadyCondition and patch the object before the blocking operation
@@ -212,7 +213,7 @@ func (r *KKMachineReconciler) reconcileDelete(ctx context.Context, machineScope 
 	return ctrl.Result{}, nil
 }
 
-func (r *KKMachineReconciler) reconcileDeleteKKInstance(ctx context.Context, machineScope *scope.MachineScope) (*infrav1.KKInstance, error) {
+func (r *Reconciler) reconcileDeleteKKInstance(ctx context.Context, machineScope *scope.MachineScope) (*infrav1.KKInstance, error) {
 	// Find existing instance
 	instance, err := r.findInstance(ctx, machineScope)
 	if err != nil && !apierrors.IsNotFound(err) {
@@ -237,7 +238,7 @@ func (r *KKMachineReconciler) reconcileDeleteKKInstance(ctx context.Context, mac
 	return instance, nil
 }
 
-func (r *KKMachineReconciler) reconcileNormal(ctx context.Context, machineScope *scope.MachineScope, _ pkg.ClusterScoper,
+func (r *Reconciler) reconcileNormal(ctx context.Context, machineScope *scope.MachineScope, _ pkg.ClusterScoper,
 	kkInstanceScope scope.KKInstanceScope) (ctrl.Result, error) {
 	machineScope.Info("Reconcile KKMachine normal")
 
@@ -246,6 +247,12 @@ func (r *KKMachineReconciler) reconcileNormal(ctx context.Context, machineScope 
 		machineScope.Info("Error state detected, skipping reconciliation")
 		return ctrl.Result{}, nil
 	}
+
+	if machineScope.KKMachine.Labels == nil {
+		machineScope.KKMachine.Labels = make(map[string]string)
+	}
+
+	machineScope.KKMachine.Labels[infrav1.KKClusterLabelName] = machineScope.InfraCluster.InfraClusterName()
 
 	if !machineScope.Cluster.Status.InfrastructureReady {
 		machineScope.Info("Cluster infrastructure is not ready yet")
@@ -287,7 +294,12 @@ func (r *KKMachineReconciler) reconcileNormal(ctx context.Context, machineScope 
 			}
 		}
 
+		if !r.mutex.TryLock() {
+			machineScope.V(4).Info("Waiting for the last KKInstance to be created")
+			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
+		}
 		instance, err = r.createInstance(ctx, machineScope, kkInstanceScope)
+		r.mutex.Unlock()
 		if err != nil {
 			machineScope.Error(err, "unable to create kkInstance")
 			r.Recorder.Eventf(machineScope.KKMachine, corev1.EventTypeWarning, "FailedCreate", "Failed to create kkInstance: %v", err)
@@ -342,6 +354,10 @@ func (r *KKMachineReconciler) reconcileNormal(ctx context.Context, machineScope 
 
 		machineScope.SetReady()
 		conditions.MarkTrue(machineScope.KKMachine, infrav1.InstanceReadyCondition)
+	case infrav1.InstanceStateInPlaceUpgrading:
+		machineScope.SetNotReady()
+		conditions.MarkFalse(machineScope.KKMachine, infrav1.InstanceReadyCondition, infrav1.InstanceInPlaceUpgradingReason, clusterv1.ConditionSeverityWarning, "")
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	default:
 		machineScope.SetNotReady()
 		machineScope.Info("KubeKey instance state is undefined", "state", instance.Status.State, "instance-id", *machineScope.GetInstanceID())
@@ -354,7 +370,7 @@ func (r *KKMachineReconciler) reconcileNormal(ctx context.Context, machineScope 
 	return ctrl.Result{}, nil
 }
 
-func (r *KKMachineReconciler) findInstance(ctx context.Context, machineScope *scope.MachineScope) (*infrav1.KKInstance, error) {
+func (r *Reconciler) findInstance(ctx context.Context, machineScope *scope.MachineScope) (*infrav1.KKInstance, error) {
 	machineScope.V(4).Info("Find KubeKey instance")
 
 	kkInstance := &infrav1.KKInstance{}
@@ -371,7 +387,7 @@ func (r *KKMachineReconciler) findInstance(ctx context.Context, machineScope *sc
 
 	machineScope.V(4).Info("KKMachine has an instance id", "instance-id", pid.ID())
 	// If the ProviderID is populated, describe the instance using the ID.
-	id := pointer.StringPtr(pid.ID())
+	id := pointer.String(pid.ID())
 
 	obj := client.ObjectKey{
 		Namespace: machineScope.KKMachine.Namespace,
@@ -384,7 +400,7 @@ func (r *KKMachineReconciler) findInstance(ctx context.Context, machineScope *sc
 	return kkInstance, nil
 }
 
-func (r *KKMachineReconciler) indexKKMachineByInstanceID(o client.Object) []string {
+func (r *Reconciler) indexKKMachineByInstanceID(o client.Object) []string {
 	kkMachine, ok := o.(*infrav1.KKMachine)
 	if !ok {
 		return nil
@@ -399,7 +415,7 @@ func (r *KKMachineReconciler) indexKKMachineByInstanceID(o client.Object) []stri
 
 // KKClusterToKKMachines is a handler.ToRequestsFunc to be used to enqeue requests for reconciliation
 // of KKMachines.
-func (r *KKMachineReconciler) KKClusterToKKMachines(log logr.Logger) handler.MapFunc {
+func (r *Reconciler) KKClusterToKKMachines(log logr.Logger) handler.MapFunc {
 	return func(o client.Object) []ctrl.Request {
 		c, ok := o.(*infrav1.KKCluster)
 		if !ok {
@@ -428,7 +444,7 @@ func (r *KKMachineReconciler) KKClusterToKKMachines(log logr.Logger) handler.Map
 	}
 }
 
-func (r *KKMachineReconciler) requeueKKMachinesForUnpausedCluster(log logr.Logger) handler.MapFunc {
+func (r *Reconciler) requeueKKMachinesForUnpausedCluster(log logr.Logger) handler.MapFunc {
 	return func(o client.Object) []ctrl.Request {
 		c, ok := o.(*clusterv1.Cluster)
 		if !ok {
@@ -447,7 +463,7 @@ func (r *KKMachineReconciler) requeueKKMachinesForUnpausedCluster(log logr.Logge
 	}
 }
 
-func (r *KKMachineReconciler) requestsForCluster(log logr.Logger, namespace, name string) []ctrl.Request {
+func (r *Reconciler) requestsForCluster(log logr.Logger, namespace, name string) []ctrl.Request {
 	labels := map[string]string{clusterv1.ClusterLabelName: name}
 	machineList := &clusterv1.MachineList{}
 	if err := r.Client.List(context.TODO(), machineList, client.InNamespace(namespace), client.MatchingLabels(labels)); err != nil {
