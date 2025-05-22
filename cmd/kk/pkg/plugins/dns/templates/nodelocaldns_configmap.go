@@ -17,11 +17,12 @@
 package templates
 
 import (
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/utils"
 	"github.com/lithammer/dedent"
 	"text/template"
 )
 
-var NodeLocalDNSConfigMap = template.Must(template.New("nodelocaldnsConfigmap.yaml").Parse(
+var NodeLocalDNSConfigMap = template.Must(template.New("nodelocaldns-configmap.yaml").Funcs(utils.FuncMap).Parse(
 	dedent.Dedent(`---
 apiVersion: v1
 kind: ConfigMap
@@ -33,6 +34,30 @@ metadata:
 
 data:
   Corefile: |
+{{- if .ExternalZones }}
+{{- range .ExternalZones }}
+{{ range .Zones }}{{ . | indent 4 }} {{ end}} {
+        errors
+        cache {{ .Cache }}
+        reload
+{{- if .Rewrite }}
+{{- range .Rewrite }}
+        rewrite {{ . }}
+{{- end }}
+{{- end }}
+        loop
+        bind 169.254.25.10
+        forward . {{ range .Nameservers }} {{ . }}{{ end }}
+        prometheus :9253
+        log
+{{- if $.DNSEtcHosts }}
+        hosts /etc/coredns/hosts {
+          fallthrough
+        }
+{{- end }}
+    }
+{{- end }}
+{{- end }}
     {{ .DNSDomain }}:53 {
         errors
         cache {
@@ -78,6 +103,14 @@ data:
         bind 169.254.25.10
         forward . /etc/resolv.conf
         prometheus :9253
+{{- if .DNSEtcHosts }}
+        hosts /etc/coredns/hosts {
+          fallthrough
+        }
+{{- end }}
     }
-
+{{- if .DNSEtcHosts }}
+  hosts: |
+{{ .DNSEtcHosts | indent 4}}
+{{- end }}
 `)))

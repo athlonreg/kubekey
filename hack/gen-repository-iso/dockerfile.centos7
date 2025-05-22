@@ -6,13 +6,12 @@ ARG BUILD_TOOLS="yum-utils createrepo mkisofs epel-release"
 ARG DIR=${OS}${OS_VERSION}-${TARGETARCH}-rpms
 
 RUN yum install -q -y ${BUILD_TOOLS} \
-    && yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo \
     && yum makecache
 
 WORKDIR package
 COPY packages.yaml .
 COPY --from=mikefarah/yq:4.11.1 /usr/bin/yq /usr/bin/yq
-RUN yq eval ".common[],.rpms[],.${OS}[],.${OS}${OS_VERSION}" packages.yaml > packages.list
+RUN yq eval ".common[],.rpms[],.${OS}[],.${OS}${OS_VERSION}[]" packages.yaml > packages.list
 
 RUN sort -u packages.list | xargs repotrack -p ${DIR} \
     && createrepo -d ${DIR} \

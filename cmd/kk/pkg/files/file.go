@@ -20,7 +20,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,12 +44,15 @@ const (
 	k3s        = "k3s"
 	k8e        = "k8e"
 	docker     = "docker"
+	cridockerd = "cri-dockerd"
 	crictl     = "crictl"
 	registry   = "registry"
 	harbor     = "harbor"
 	compose    = "compose"
 	containerd = "containerd"
 	runc       = "runc"
+	calicoctl  = "calicoctl"
+	buildx     = "buildx"
 )
 
 // KubeBinary Type field const
@@ -58,12 +60,14 @@ const (
 	CNI        = "cni"
 	CRICTL     = "crictl"
 	DOCKER     = "docker"
+	CRIDOCKERD = "cri-dockerd"
 	ETCD       = "etcd"
 	HELM       = "helm"
 	KUBE       = "kube"
 	REGISTRY   = "registry"
 	CONTAINERD = "containerd"
 	RUNC       = "runc"
+	BUILD      = "buildx"
 )
 
 var (
@@ -108,21 +112,21 @@ func NewKubeBinary(name, arch, version, prePath string, getCmd func(path, url st
 	case kubeadm:
 		component.Type = KUBE
 		component.FileName = kubeadm
-		component.Url = fmt.Sprintf("https://storage.googleapis.com/kubernetes-release/release/%s/bin/linux/%s/kubeadm", version, arch)
+		component.Url = fmt.Sprintf("https://dl.k8s.io/release/%s/bin/linux/%s/kubeadm", version, arch)
 		if component.Zone == "cn" {
 			component.Url = fmt.Sprintf("https://kubernetes-release.pek3b.qingstor.com/release/%s/bin/linux/%s/kubeadm", version, arch)
 		}
 	case kubelet:
 		component.Type = KUBE
 		component.FileName = kubelet
-		component.Url = fmt.Sprintf("https://storage.googleapis.com/kubernetes-release/release/%s/bin/linux/%s/kubelet", version, arch)
+		component.Url = fmt.Sprintf("https://dl.k8s.io/release/%s/bin/linux/%s/kubelet", version, arch)
 		if component.Zone == "cn" {
 			component.Url = fmt.Sprintf("https://kubernetes-release.pek3b.qingstor.com/release/%s/bin/linux/%s/kubelet", version, arch)
 		}
 	case kubectl:
 		component.Type = KUBE
 		component.FileName = kubectl
-		component.Url = fmt.Sprintf("https://storage.googleapis.com/kubernetes-release/release/%s/bin/linux/%s/kubectl", version, arch)
+		component.Url = fmt.Sprintf("https://dl.k8s.io/release/%s/bin/linux/%s/kubectl", version, arch)
 		if component.Zone == "cn" {
 			component.Url = fmt.Sprintf("https://kubernetes-release.pek3b.qingstor.com/release/%s/bin/linux/%s/kubectl", version, arch)
 		}
@@ -146,6 +150,13 @@ func NewKubeBinary(name, arch, version, prePath string, getCmd func(path, url st
 		component.Url = fmt.Sprintf("https://download.docker.com/linux/static/stable/%s/docker-%s.tgz", util.ArchAlias(arch), version)
 		if component.Zone == "cn" {
 			component.Url = fmt.Sprintf("https://mirrors.aliyun.com/docker-ce/linux/static/stable/%s/docker-%s.tgz", util.ArchAlias(arch), version)
+		}
+	case cridockerd:
+		component.Type = CRIDOCKERD
+		component.FileName = fmt.Sprintf("cri-dockerd-%s.tgz", version)
+		component.Url = fmt.Sprintf("https://github.com/Mirantis/cri-dockerd/releases/download/v%s/cri-dockerd-%s.%s.tgz", version, version, arch)
+		if component.Zone == "cn" {
+			component.Url = fmt.Sprintf("https://kubernetes-release.pek3b.qingstor.com/cri-dockerd/releases/download/v%s/cri-dockerd-%s.%s.tgz", version, version, arch)
 		}
 	case crictl:
 		component.Type = CRICTL
@@ -209,6 +220,17 @@ func NewKubeBinary(name, arch, version, prePath string, getCmd func(path, url st
 		if component.Zone == "cn" {
 			component.Url = fmt.Sprintf("https://kubernetes-release.pek3b.qingstor.com/opencontainers/runc/releases/download/%s/runc.%s", version, arch)
 		}
+	case calicoctl:
+		component.Type = CNI
+		component.FileName = calicoctl
+		component.Url = fmt.Sprintf("https://github.com/projectcalico/calico/releases/download/%s/calicoctl-linux-%s", version, arch)
+		if component.Zone == "cn" {
+			component.Url = fmt.Sprintf("https://kubernetes-release.pek3b.qingstor.com/projectcalico/calico/releases/download/%s/calicoctl-linux-%s", version, arch)
+		}
+	case buildx:
+		component.Type = BUILD
+		component.FileName = fmt.Sprintf("buildx-%s.linux-%s", version, arch)
+		component.Url = fmt.Sprintf("https://github.com/docker/buildx/releases/download/%s/buildx-%s.linux-%s", version, version, arch)
 	default:
 		logger.Log.Fatalf("unsupported kube binaries %s", name)
 	}
@@ -306,6 +328,23 @@ func (b *KubeBinary) SHA256Check() error {
 	return nil
 }
 
+func SHA256CheckEqual(filePath string, checksum string) (bool, error) {
+	if strings.TrimSpace(checksum) == "" {
+		return false, nil
+	}
+
+	if !util.IsExist(filePath) {
+		return false, nil
+	}
+
+	output, err := sha256sum(filePath)
+	if err != nil {
+		return false, errors.Wrap(err, fmt.Sprintf("Failed to check SHA256 of %s", filePath))
+	}
+
+	return output == checksum, nil
+}
+
 func sha256sum(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -313,9 +352,9 @@ func sha256sum(path string) (string, error) {
 	}
 	defer file.Close()
 
-	data, err := ioutil.ReadAll(file)
-	if err != nil {
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, file); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%x", sha256.Sum256(data)), nil
+	return fmt.Sprintf("%x", hasher.Sum(nil)), nil
 }

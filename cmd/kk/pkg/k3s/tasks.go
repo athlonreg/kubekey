@@ -31,7 +31,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	kubekeyapiv1alpha2 "github.com/kubesphere/kubekey/v3/cmd/kk/apis/kubekey/v1alpha2"
-	kubekeyregistry "github.com/kubesphere/kubekey/v3/cmd/kk/pkg/bootstrap/registry"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/common"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/action"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/connector"
@@ -98,19 +97,22 @@ func (s *SyncKubeBinary) Execute(runtime connector.Runtime) error {
 	}
 	binariesMap := binariesMapObj.(map[string]*files.KubeBinary)
 
-	if err := SyncKubeBinaries(runtime, binariesMap); err != nil {
+	if err := SyncKubeBinaries(s, runtime, binariesMap); err != nil {
 		return err
 	}
 	return nil
 }
 
 // SyncKubeBinaries is used to sync kubernetes' binaries to each node.
-func SyncKubeBinaries(runtime connector.Runtime, binariesMap map[string]*files.KubeBinary) error {
+func SyncKubeBinaries(s *SyncKubeBinary, runtime connector.Runtime, binariesMap map[string]*files.KubeBinary) error {
 	if err := utils.ResetTmpDir(runtime); err != nil {
 		return err
 	}
 
 	binaryList := []string{"k3s", "helm", "kubecni"}
+	if s.KubeConf.Cluster.Network.Plugin == "calico" {
+		binaryList = append(binaryList, "calicoctl")
+	}
 	for _, name := range binaryList {
 		binary, ok := binariesMap[name]
 		if !ok {
@@ -209,7 +211,7 @@ func (g *GenerateK3sService) Execute(runtime connector.Runtime) error {
 			"IsMaster":                 host.IsRole(common.Master),
 			"IsDockerRuntime":          g.KubeConf.Cluster.Kubernetes.ContainerManager == common.Docker,
 			"ContainerRuntimeEndpoint": g.KubeConf.Cluster.Kubernetes.ContainerRuntimeEndpoint,
-			"NodeIP":                   host.GetInternalAddress(),
+			"NodeIP":                   host.GetInternalIPv4Address(),
 			"HostName":                 host.GetName(),
 			"PodSubnet":                g.KubeConf.Cluster.Network.KubePodsCIDR,
 			"ServiceSubnet":            g.KubeConf.Cluster.Network.KubeServiceCIDR,
@@ -259,7 +261,7 @@ func (g *GenerateK3sServiceEnv) Execute(runtime connector.Runtime) error {
 		}
 	default:
 		for _, node := range runtime.GetHostsByRole(common.ETCD) {
-			endpoint := fmt.Sprintf("https://%s:%s", node.GetInternalAddress(), kubekeyapiv1alpha2.DefaultEtcdPort)
+			endpoint := fmt.Sprintf("https://%s:%d", node.GetInternalIPv4Address(), g.KubeConf.Cluster.Etcd.GetPort())
 			endpointsList = append(endpointsList, endpoint)
 		}
 		externalEtcd.Endpoints = endpointsList
@@ -375,67 +377,16 @@ type AddWorkerLabel struct {
 }
 
 func (a *AddWorkerLabel) Execute(runtime connector.Runtime) error {
-	host := runtime.RemoteHost()
-
-	cmd := fmt.Sprintf(
-		"/usr/local/bin/kubectl label --overwrite node %s node-role.kubernetes.io/worker=",
-		host.GetName())
-
-	if _, err := runtime.GetRunner().SudoCmd(cmd, false); err != nil {
-		return errors.Wrap(errors.WithStack(err), "add master NoSchedule taint failed")
-	}
-	return nil
-}
-
-type SyncKubeConfigToWorker struct {
-	common.KubeAction
-}
-
-func (s *SyncKubeConfigToWorker) Execute(runtime connector.Runtime) error {
-	if v, ok := s.PipelineCache.Get(common.ClusterStatus); ok {
-		cluster := v.(*K3sStatus)
-
-		createConfigDirCmd := "mkdir -p /root/.kube"
-		if _, err := runtime.GetRunner().SudoCmd(createConfigDirCmd, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "create .kube dir failed")
-		}
-
-		oldServer := "server: https://127.0.0.1:6443"
-		newServer := fmt.Sprintf("server: https://%s:%d",
-			s.KubeConf.Cluster.ControlPlaneEndpoint.Domain,
-			s.KubeConf.Cluster.ControlPlaneEndpoint.Port)
-		newKubeConfig := strings.Replace(cluster.KubeConfig, oldServer, newServer, -1)
-
-		syncKubeConfigForRootCmd := fmt.Sprintf("echo '%s' > %s", newKubeConfig, "/root/.kube/config")
-		if _, err := runtime.GetRunner().SudoCmd(syncKubeConfigForRootCmd, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "sync kube config for root failed")
-		}
-
-		userConfigDirCmd := "mkdir -p $HOME/.kube"
-		if _, err := runtime.GetRunner().Cmd(userConfigDirCmd, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "user mkdir $HOME/.kube failed")
-		}
-
-		syncKubeConfigForUserCmd := fmt.Sprintf("echo '%s' > %s", newKubeConfig, "$HOME/.kube/config")
-		if _, err := runtime.GetRunner().Cmd(syncKubeConfigForUserCmd, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "sync kube config for normal user failed")
-		}
-
-		userId, err := runtime.GetRunner().Cmd("echo $(id -u)", false)
-		if err != nil {
-			return errors.Wrap(errors.WithStack(err), "get user id failed")
-		}
-
-		userGroupId, err := runtime.GetRunner().Cmd("echo $(id -g)", false)
-		if err != nil {
-			return errors.Wrap(errors.WithStack(err), "get user group id failed")
-		}
-
-		chownKubeConfig := fmt.Sprintf("chown -R %s:%s -R $HOME/.kube", userId, userGroupId)
-		if _, err := runtime.GetRunner().SudoCmd(chownKubeConfig, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "chown user kube config failed")
+	for _, host := range runtime.GetAllHosts() {
+		if host.IsRole(common.Worker) {
+			if _, err := runtime.GetRunner().SudoCmd(fmt.Sprintf(
+				"/usr/local/bin/kubectl label --overwrite node %s node-role.kubernetes.io/worker=",
+				host.GetName()), true); err != nil {
+				return errors.Wrap(errors.WithStack(err), "add worker label failed")
+			}
 		}
 	}
+
 	return nil
 }
 
@@ -553,9 +504,9 @@ func (g *GenerateK3sRegistryConfig) Execute(runtime connector.Runtime) error {
 		}
 	}
 
-	_, ok := registryConfigs[kubekeyregistry.RegistryCertificateBaseName]
+	_, ok := registryConfigs[g.KubeConf.Cluster.Registry.PrivateRegistry]
 
-	if !ok && g.KubeConf.Cluster.Registry.PrivateRegistry == kubekeyregistry.RegistryCertificateBaseName {
+	if !ok {
 		registryConfigs[g.KubeConf.Cluster.Registry.PrivateRegistry] = registry.RegistryConfig{TLS: &registry.TLSConfig{InsecureSkipVerify: true}}
 	}
 

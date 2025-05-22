@@ -38,6 +38,7 @@ type ClusterSpec struct {
 	ControlPlaneEndpoint ControlPlaneEndpoint `yaml:"controlPlaneEndpoint" json:"controlPlaneEndpoint,omitempty"`
 	System               System               `yaml:"system" json:"system,omitempty"`
 	Etcd                 EtcdCluster          `yaml:"etcd" json:"etcd,omitempty"`
+	DNS                  DNS                  `yaml:"dns" json:"dns,omitempty"`
 	Kubernetes           Kubernetes           `yaml:"kubernetes" json:"kubernetes,omitempty"`
 	Network              NetworkConfig        `yaml:"network" json:"network,omitempty"`
 	Storage              StorageConfig        `yaml:"storage" json:"storage,omitempty"`
@@ -74,6 +75,7 @@ type HostCfg struct {
 type ControlPlaneEndpoint struct {
 	InternalLoadbalancer string  `yaml:"internalLoadbalancer" json:"internalLoadbalancer,omitempty"`
 	Domain               string  `yaml:"domain" json:"domain,omitempty"`
+	ExternalDNS          *bool   `yaml:"externalDNS" json:"externalDNS"`
 	Address              string  `yaml:"address" json:"address,omitempty"`
 	Port                 int     `yaml:"port" json:"port,omitempty"`
 	KubeVip              KubeVip `yaml:"kubevip" json:"kubevip,omitempty"`
@@ -87,17 +89,20 @@ type KubeVip struct {
 type CustomScripts struct {
 	Name      string   `yaml:"name" json:"name,omitempty"`
 	Bash      string   `yaml:"bash" json:"bash,omitempty"`
+	Role      string   `yaml:"role" json:"role,omitempty"`
 	Materials []string `yaml:"materials" json:"materials,omitempty"`
 }
 
 // System defines the system config for each node in cluster.
 type System struct {
-	NtpServers  []string        `yaml:"ntpServers" json:"ntpServers,omitempty"`
-	Timezone    string          `yaml:"timezone" json:"timezone,omitempty"`
-	Rpms        []string        `yaml:"rpms" json:"rpms,omitempty"`
-	Debs        []string        `yaml:"debs" json:"debs,omitempty"`
-	PreInstall  []CustomScripts `yaml:"preInstall" json:"preInstall,omitempty"`
-	PostInstall []CustomScripts `yaml:"postInstall" json:"postInstall,omitempty"`
+	NtpServers         []string        `yaml:"ntpServers" json:"ntpServers,omitempty"`
+	Timezone           string          `yaml:"timezone" json:"timezone,omitempty"`
+	Rpms               []string        `yaml:"rpms" json:"rpms,omitempty"`
+	Debs               []string        `yaml:"debs" json:"debs,omitempty"`
+	PreInstall         []CustomScripts `yaml:"preInstall" json:"preInstall,omitempty"`
+	PostClusterInstall []CustomScripts `yaml:"postClusterInstall" json:"postClusterInstall,omitempty"`
+	PostInstall        []CustomScripts `yaml:"postInstall" json:"postInstall,omitempty"`
+	SkipConfigureOS    bool            `yaml:"skipConfigureOS" json:"skipConfigureOS,omitempty"`
 }
 
 // RegistryConfig defines the configuration information of the image's repository.
@@ -106,9 +111,28 @@ type RegistryConfig struct {
 	RegistryMirrors    []string             `yaml:"registryMirrors" json:"registryMirrors,omitempty"`
 	InsecureRegistries []string             `yaml:"insecureRegistries" json:"insecureRegistries,omitempty"`
 	PrivateRegistry    string               `yaml:"privateRegistry" json:"privateRegistry,omitempty"`
-	DataRoot           string               `yaml:"dataRoot" json:"dataRoot,omitempty"`
+	ContainerdDataDir  string               `yaml:"containerdDataDir" json:"containerdDataDir"`
+	DockerDataDir      string               `yaml:"dockerDataDir" json:"dockerDataDir"`
+	RegistryDataDir    string               `yaml:"registryDataDir" json:"registryDataDir"`
 	NamespaceOverride  string               `yaml:"namespaceOverride" json:"namespaceOverride,omitempty"`
+	BridgeIP           string               `yaml:"bridgeIP" json:"bridgeIP,omitempty"`
 	Auths              runtime.RawExtension `yaml:"auths" json:"auths,omitempty"`
+	NamespaceRewrite   *NamespaceRewrite    `yaml:"namespaceRewrite" json:"namespaceRewrite"`
+}
+
+// NamespaceRewritePolicy define namespaceRewrite policy
+type NamespaceRewritePolicy string
+
+const (
+	// ChangePrefix change image namespace prefix
+	ChangePrefix NamespaceRewritePolicy = "changePrefix"
+)
+
+// NamespaceRewrite define a policy to modify image namespace
+type NamespaceRewrite struct {
+	Policy NamespaceRewritePolicy `yaml:"policy" json:"policy"`
+	Src    []string               `yaml:"src" json:"src"`
+	Dest   string                 `yaml:"dest" json:"dest"`
 }
 
 // KubeSphere defines the configuration information of the KubeSphere.
@@ -125,7 +149,10 @@ func (cfg *ClusterSpec) GenerateCertSANs() []string {
 	extraCertSANs := make([]string, 0)
 
 	extraCertSANs = append(extraCertSANs, cfg.ControlPlaneEndpoint.Domain)
-	extraCertSANs = append(extraCertSANs, cfg.ControlPlaneEndpoint.Address)
+
+	if cfg.ControlPlaneEndpoint.Address != "" {
+		extraCertSANs = append(extraCertSANs, cfg.ControlPlaneEndpoint.Address)
+	}
 
 	for _, host := range cfg.Hosts {
 		extraCertSANs = append(extraCertSANs, host.Name)
@@ -133,12 +160,19 @@ func (cfg *ClusterSpec) GenerateCertSANs() []string {
 		if host.Address != cfg.ControlPlaneEndpoint.Address {
 			extraCertSANs = append(extraCertSANs, host.Address)
 		}
-		if host.InternalAddress != host.Address && host.InternalAddress != cfg.ControlPlaneEndpoint.Address {
-			extraCertSANs = append(extraCertSANs, host.InternalAddress)
+
+		nodeAddresses := strings.Split(host.InternalAddress, ",")
+		InternalIPv4Address := nodeAddresses[0]
+		if InternalIPv4Address != host.Address && InternalIPv4Address != cfg.ControlPlaneEndpoint.Address {
+			extraCertSANs = append(extraCertSANs, InternalIPv4Address)
+		}
+		if len(nodeAddresses) == 2 {
+			InternalIPv6Address := nodeAddresses[1]
+			extraCertSANs = append(extraCertSANs, InternalIPv6Address)
 		}
 	}
 
-	extraCertSANs = append(extraCertSANs, util.ParseIp(cfg.Network.KubeServiceCIDR)[0])
+	extraCertSANs = append(extraCertSANs, util.ParseIp(strings.Split(cfg.Network.KubeServiceCIDR, ",")[0])[0])
 
 	defaultCertSANs = append(defaultCertSANs, extraCertSANs...)
 
@@ -165,9 +199,6 @@ func (cfg *ClusterSpec) GroupHosts() map[string][]*KubeHost {
 	}
 	if len(roleGroups[Etcd]) == 0 && cfg.Etcd.Type == KubeKey {
 		logger.Log.Fatal(errors.New("The number of etcd cannot be 0"))
-	}
-	if len(roleGroups[Registry]) > 1 {
-		logger.Log.Fatal(errors.New("The number of registry node cannot be greater than 1."))
 	}
 
 	for _, host := range roleGroups[ControlPlane] {
@@ -206,12 +237,12 @@ func toHosts(cfg HostCfg) *KubeHost {
 
 // ClusterIP is used to get the kube-apiserver service address inside the cluster.
 func (cfg *ClusterSpec) ClusterIP() string {
-	return util.ParseIp(cfg.Network.KubeServiceCIDR)[0]
+	return util.ParseIp(strings.Split(cfg.Network.KubeServiceCIDR, ",")[0])[0]
 }
 
 // CorednsClusterIP is used to get the coredns service address inside the cluster.
 func (cfg *ClusterSpec) CorednsClusterIP() string {
-	return util.ParseIp(cfg.Network.KubeServiceCIDR)[2]
+	return util.ParseIp(strings.Split(cfg.Network.KubeServiceCIDR, ",")[0])[2]
 }
 
 // ClusterDNS is used to get the dns server address inside the cluster.
@@ -290,4 +321,19 @@ func (c ControlPlaneEndpoint) IsInternalLBEnabled() bool {
 
 func (c ControlPlaneEndpoint) IsInternalLBEnabledVip() bool {
 	return c.InternalLoadbalancer == Kubevip
+}
+
+// EnableExternalDNS is used to determine whether to use external dns to resolve kube-apiserver domain.
+func (c *ControlPlaneEndpoint) EnableExternalDNS() bool {
+	if c.ExternalDNS == nil {
+		return false
+	}
+	return *c.ExternalDNS
+}
+
+func (r *RegistryConfig) GetHost() string {
+	if r.PrivateRegistry == "" {
+		return ""
+	}
+	return strings.Split(r.PrivateRegistry, "/")[0]
 }

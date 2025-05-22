@@ -20,10 +20,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/connector"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/files"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/images"
 
 	mapset "github.com/deckarep/golang-set"
 	"github.com/pkg/errors"
@@ -37,7 +40,7 @@ import (
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/util"
 )
 
-func CreateManifest(arg common.Argument, name string) error {
+func CreateManifest(arg common.Argument, name string, registry bool) error {
 	checkFileExists(arg.FilePath)
 
 	client, err := kubernetes.NewClient(arg.KubeConfig)
@@ -96,7 +99,9 @@ func CreateManifest(arg common.Argument, name string) error {
 		case "ubuntu":
 			id = "ubuntu"
 			v := strings.Split(osImageArr[1], ".")
-			version = fmt.Sprintf("%s.%s", v[0], v[1])
+			if len(v) >= 2 {
+				version = fmt.Sprintf("%s.%s", v[0], v[1])
+			}
 		case "centos":
 			id = "centos"
 			version = osImageArr[2]
@@ -164,14 +169,21 @@ func CreateManifest(arg common.Argument, name string) error {
 			CNI:               kubekeyv1alpha2.CNI{Version: kubekeyv1alpha2.DefaultCniVersion},
 			ETCD:              kubekeyv1alpha2.ETCD{Version: kubekeyv1alpha2.DefaultEtcdVersion},
 			Crictl:            kubekeyv1alpha2.Crictl{Version: kubekeyv1alpha2.DefaultCrictlVersion},
+			Calicoctl:         kubekeyv1alpha2.Calicoctl{Version: kubekeyv1alpha2.DefaultCalicoVersion},
 			ContainerRuntimes: containerArr,
 		},
 		Images: imageArr,
 	}
 
+	if registry {
+		options.Components.DockerRegistry.Version = kubekeyv1alpha2.DefaultRegistryVersion
+		options.Components.DockerCompose.Version = kubekeyv1alpha2.DefaultDockerComposeVersion
+		options.Components.Harbor.Version = kubekeyv1alpha2.DefaultHarborVersion
+	}
+
 	manifestStr, err := templates.RenderManifest(options)
 
-	if err := ioutil.WriteFile(arg.FilePath, []byte(manifestStr), 0644); err != nil {
+	if err := os.WriteFile(arg.FilePath, []byte(manifestStr), 0644); err != nil {
 		return errors.Wrap(err, fmt.Sprintf("write file %s failed", arg.FilePath))
 	}
 
@@ -201,4 +213,126 @@ func checkFileExists(fileName string) {
 			}
 		}
 	}
+}
+
+func CreateManifestSpecifyVersion(arg common.Argument, name, version string, registry bool, arch []string) error {
+	checkFileExists(arg.FilePath)
+
+	var kubernetesDistribution []kubekeyv1alpha2.KubernetesDistribution
+
+	k8sVersion := strings.Split(version, ",")
+
+	imageNames := []string{
+		"pause",
+		"kube-apiserver",
+		"kube-controller-manager",
+		"kube-scheduler",
+		"kube-proxy",
+
+		// network
+		"coredns",
+		"k8s-dns-node-cache",
+		"calico-kube-controllers",
+		"calico-cni",
+		"calico-node",
+		"calico-flexvol",
+		"calico-typha",
+		"flannel",
+		"flannel-cni-plugin",
+		"cilium",
+		"cilium-operator-generic",
+		"hybridnet",
+		"kubeovn",
+		"multus",
+		// storage
+		"provisioner-localpv",
+		"linux-utils",
+		// load balancer
+		"haproxy",
+		"kubevip",
+		// kata-deploy
+		"kata-deploy",
+		// node-feature-discovery
+		"node-feature-discovery",
+	}
+	var imageArr []string
+	for _, v := range k8sVersion {
+		versionutil.MustParseGeneric(v)
+
+		for _, a := range arch {
+			_, ok := files.FileSha256["kubeadm"][a][v]
+			if !ok {
+				return fmt.Errorf("invalid kubernetes version %s", v)
+			}
+		}
+
+		kubernetesDistribution = append(kubernetesDistribution, kubekeyv1alpha2.KubernetesDistribution{
+			Type:    "kubernetes",
+			Version: v,
+		})
+
+		for _, imageName := range imageNames {
+			repo := images.GetImage(&common.KubeRuntime{
+				BaseRuntime: connector.NewBaseRuntime("image list", connector.NewDialer(), arg.Debug, arg.IgnoreErr),
+			}, &common.KubeConf{
+				Cluster: &kubekeyv1alpha2.ClusterSpec{
+					Kubernetes: kubekeyv1alpha2.Kubernetes{Version: v},
+					Registry:   kubekeyv1alpha2.RegistryConfig{PrivateRegistry: images.DefaultRegistry()},
+				},
+			}, imageName).ImageName()
+			if !imageIsExist(repo, imageArr) {
+				imageArr = append(imageArr, repo)
+			}
+
+		}
+	}
+
+	options := &templates.Options{
+		Name:                    name,
+		Arches:                  arch,
+		OperatingSystems:        []kubekeyv1alpha2.OperatingSystem{},
+		KubernetesDistributions: kubernetesDistribution,
+		Components: kubekeyv1alpha2.Components{
+			Helm:      kubekeyv1alpha2.Helm{Version: kubekeyv1alpha2.DefaultHelmVersion},
+			CNI:       kubekeyv1alpha2.CNI{Version: kubekeyv1alpha2.DefaultCniVersion},
+			ETCD:      kubekeyv1alpha2.ETCD{Version: kubekeyv1alpha2.DefaultEtcdVersion},
+			Crictl:    kubekeyv1alpha2.Crictl{Version: kubekeyv1alpha2.DefaultCrictlVersion},
+			Calicoctl: kubekeyv1alpha2.Calicoctl{Version: kubekeyv1alpha2.DefaultCalicoVersion},
+			ContainerRuntimes: []kubekeyv1alpha2.ContainerRuntime{
+				{
+					Type:    "docker",
+					Version: kubekeyv1alpha2.DefaultDockerVersion,
+				},
+				{
+					Type:    "containerd",
+					Version: kubekeyv1alpha2.DefaultContainerdVersion,
+				},
+			},
+		},
+		Images: imageArr,
+	}
+
+	if registry {
+		options.Components.DockerRegistry.Version = kubekeyv1alpha2.DefaultRegistryVersion
+		options.Components.DockerCompose.Version = kubekeyv1alpha2.DefaultDockerComposeVersion
+		options.Components.Harbor.Version = kubekeyv1alpha2.DefaultHarborVersion
+	}
+
+	manifestStr, err := templates.RenderManifest(options)
+
+	if err = os.WriteFile(arg.FilePath, []byte(manifestStr), 0644); err != nil {
+		return errors.Wrap(err, fmt.Sprintf("write file %s failed", arg.FilePath))
+	}
+
+	fmt.Println("Generate KubeKey manifest file successfully")
+	return nil
+}
+
+func imageIsExist(s string, arr []string) bool {
+	for _, s2 := range arr {
+		if s2 == s {
+			return true
+		}
+	}
+	return false
 }

@@ -168,6 +168,8 @@ func (g *GetAllNodesK8sVersion) Execute(runtime connector.Runtime) error {
 	nodeK8sVersion = strings.Split(kubeletVersionInfo, " ")[1]
 
 	host := runtime.RemoteHost()
+	host.GetCache().Set(common.NodeK8sVersion, nodeK8sVersion)
+
 	if host.IsRole(common.Master) {
 		apiserverVersion, err := runtime.GetRunner().SudoCmd(
 			"cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep 'image:' | rev | cut -d ':' -f1 | rev",
@@ -175,9 +177,22 @@ func (g *GetAllNodesK8sVersion) Execute(runtime connector.Runtime) error {
 		if err != nil {
 			return errors.Wrap(err, "get current kube-apiserver version failed")
 		}
-		nodeK8sVersion = apiserverVersion
+
+		apiserverSemanticVersion, err := versionutil.ParseSemantic(apiserverVersion)
+		if err != nil {
+			return errors.Wrap(err, "parse kube-apiserver version failed")
+		}
+
+		kubeletSemanticVersion, err := versionutil.ParseSemantic(nodeK8sVersion)
+		if err != nil {
+			return errors.Wrap(err, "parse kubelet version failed")
+		}
+
+		if apiserverSemanticVersion.LessThan(kubeletSemanticVersion) {
+			host.GetCache().Set(common.NodeK8sVersion, apiserverVersion)
+		}
 	}
-	host.GetCache().Set(common.NodeK8sVersion, nodeK8sVersion)
+
 	return nil
 }
 
@@ -241,9 +256,11 @@ func (k *KsVersionCheck) Execute(runtime connector.Runtime) error {
 	ccKsVersionStr, ccErr := runtime.GetRunner().SudoCmd(
 		"/usr/local/bin/kubectl get ClusterConfiguration ks-installer -n  kubesphere-system  -o jsonpath='{.metadata.labels.version}'",
 		false)
-	if ccErr == nil && ksVersionStr == "v3.1.0" {
+
+	if ccErr == nil && versionutil.MustParseSemantic(ccKsVersionStr).AtLeast(versionutil.MustParseSemantic("v3.1.0")) {
 		ksVersionStr = ccKsVersionStr
 	}
+
 	k.PipelineCache.Set(common.KubeSphereVersion, ksVersionStr)
 	return nil
 }
@@ -315,5 +332,13 @@ func (g *GetKubernetesNodesStatus) Execute(runtime connector.Runtime) error {
 		return err
 	}
 	g.PipelineCache.Set(common.ClusterNodeCRIRuntimes, cri)
+
+	featureGates, err := runtime.GetRunner().SudoCmd("cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep feature-gates", false)
+	if err != nil {
+		g.PipelineCache.Set(common.ClusterFeatureGates, "")
+	} else {
+		g.PipelineCache.Set(common.ClusterFeatureGates, featureGates)
+	}
+
 	return nil
 }

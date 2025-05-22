@@ -18,7 +18,7 @@ package kubernetes
 
 import (
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -55,6 +55,11 @@ func (k *KubernetesStatus) SearchVersion(runtime connector.Runtime) error {
 }
 
 func (k *KubernetesStatus) SearchJoinInfo(runtime connector.Runtime) error {
+	// check if the cluster status contain initial data
+	if k.BootstrapToken != "" && k.CertificateKey != "" {
+		return nil
+	}
+
 	checkKubeadmConfig, err := runtime.GetRunner().SudoCmd("cat /etc/kubernetes/kubeadm-config.yaml", false)
 	if err != nil {
 		return err
@@ -65,7 +70,7 @@ func (k *KubernetesStatus) SearchJoinInfo(runtime connector.Runtime) error {
 		return nil
 	}
 
-	uploadCertsCmd := "/usr/local/bin/kubeadm init phase upload-certs --upload-certs"
+	uploadCertsCmd := "/usr/local/bin/kubeadm init phase upload-certs --upload-certs --config /etc/kubernetes/kubeadm-config.yaml"
 	output, err := runtime.GetRunner().SudoCmd(uploadCertsCmd, true)
 	if err != nil {
 		return errors.Wrap(errors.WithStack(err), "Failed to upload kubeadm certs")
@@ -142,10 +147,13 @@ func (k *KubernetesStatus) LoadKubeConfig(runtime connector.Runtime, kubeConf *c
 	kubeConfigStr := k.KubeConfig
 
 	oldServer := fmt.Sprintf("server: https://%s:%d", kubeConf.Cluster.ControlPlaneEndpoint.Domain, kubeConf.Cluster.ControlPlaneEndpoint.Port)
+	if kubeConf.Cluster.ControlPlaneEndpoint.Address == "" {
+		kubeConf.Cluster.ControlPlaneEndpoint.Address = runtime.GetHostsByRole(common.Master)[0].GetAddress()
+	}
 	newServer := fmt.Sprintf("server: https://%s:%d", kubeConf.Cluster.ControlPlaneEndpoint.Address, kubeConf.Cluster.ControlPlaneEndpoint.Port)
 	newKubeConfigStr := strings.Replace(kubeConfigStr, oldServer, newServer, -1)
 
-	if err := ioutil.WriteFile(kubeConfigPath, []byte(newKubeConfigStr), 0644); err != nil {
+	if err := os.WriteFile(kubeConfigPath, []byte(newKubeConfigStr), 0644); err != nil {
 		return err
 	}
 	return nil

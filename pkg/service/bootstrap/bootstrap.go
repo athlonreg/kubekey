@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/template"
 
 	"github.com/pkg/errors"
@@ -113,7 +114,7 @@ func (s *Service) ExecInitScript() error {
 	for _, host := range s.scope.AllInstancesInfo() {
 		if host.Name != "" {
 			hostsList = append(hostsList, fmt.Sprintf("%s  %s.%s %s",
-				host.InternalAddress,
+				strings.Split(host.InternalAddress, ",")[0],
 				host.Name,
 				s.scope.KubernetesClusterName(),
 				host.Name))
@@ -170,6 +171,15 @@ func (s *Service) ResetNetwork() error {
 		"ipvsadm -C",
 		"ip link del kube-ipvs0",
 		"ip link del nodelocaldns",
+		"ip link del cni0",
+		"ip link del flannel.1",
+		"ip link del flannel-v6.1",
+		"ip link del flannel-wg",
+		"ip link del flannel-wg-v6",
+		"ip link del cilium_host",
+		"ip link del cilium_vxlan",
+		"ip -br link show | grep 'cali[a-f0-9]*' | awk -F '@' '{print $1}' | xargs -r -t -n 1 ip link del",
+		"ip netns show 2>/dev/null | grep cni- | xargs -r -t -n 1 ip netns del",
 	}
 	for _, cmd := range networkResetCmds {
 		_, _ = s.sshClient.SudoCmd(cmd)

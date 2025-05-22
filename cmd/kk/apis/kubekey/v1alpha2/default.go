@@ -25,75 +25,81 @@ import (
 )
 
 const (
-	DefaultPreDir               = "kubekey"
-	DefaultTmpDir               = "/tmp/kubekey"
-	DefaultSSHPort              = 22
-	DefaultLBPort               = 6443
-	DefaultApiserverPort        = 6443
-	DefaultLBDomain             = "lb.kubesphere.local"
-	DefaultNetworkPlugin        = "calico"
-	DefaultPodsCIDR             = "10.233.64.0/18"
-	DefaultServiceCIDR          = "10.233.0.0/18"
-	DefaultKubeImageNamespace   = "kubesphere"
-	DefaultClusterName          = "cluster.local"
-	DefaultDNSDomain            = "cluster.local"
-	DefaultArch                 = "amd64"
-	DefaultSSHTimeout           = 30
-	DefaultEtcdVersion          = "v3.4.13"
-	DefaultEtcdPort             = "2379"
-	DefaultDockerVersion        = "20.10.8"
-	DefaultContainerdVersion    = "1.6.4"
-	DefaultRuncVersion          = "v1.1.1"
-	DefaultCrictlVersion        = "v1.24.0"
-	DefaultKubeVersion          = "v1.23.10"
-	DefaultCalicoVersion        = "v3.23.2"
-	DefaultFlannelVersion       = "v0.12.0"
-	DefaultCniVersion           = "v0.9.1"
-	DefaultCiliumVersion        = "v1.11.6"
-	DefaultKubeovnVersion       = "v1.10.6"
-	DefalutMultusVersion        = "v3.8"
-	DefaultHelmVersion          = "v3.9.0"
-	DefaultDockerComposeVersion = "v2.2.2"
-	DefaultRegistryVersion      = "2"
-	DefaultHarborVersion        = "v2.5.3"
-	DefaultMaxPods              = 110
-	DefaultPodPidsLimit         = 10000
-	DefaultNodeCidrMaskSize     = 24
-	DefaultIPIPMode             = "Always"
-	DefaultVXLANMode            = "Never"
-	DefaultVethMTU              = 0
-	DefaultBackendMode          = "vxlan"
-	DefaultProxyMode            = "ipvs"
-	DefaultCrioEndpoint         = "unix:///var/run/crio/crio.sock"
-	DefaultContainerdEndpoint   = "unix:///run/containerd/containerd.sock"
-	DefaultIsulaEndpoint        = "unix:///var/run/isulad.sock"
-	Etcd                        = "etcd"
-	Master                      = "master"
-	ControlPlane                = "control-plane"
-	Worker                      = "worker"
-	K8s                         = "k8s"
-	Registry                    = "registry"
-	DefaultEtcdBackupDir        = "/var/backups/kube_etcd"
-	DefaultEtcdBackupPeriod     = 1440
-	DefaultKeepBackNumber       = 5
-	DefaultEtcdBackupScriptDir  = "/usr/local/bin/kube-scripts"
-	DefaultPodGateway           = "10.233.64.1"
-	DefaultJoinCIDR             = "100.64.0.0/16"
-	DefaultNetworkType          = "geneve"
-	DefaultTunnelType           = "geneve"
-	DefaultPodNicType           = "veth-pair"
-	DefaultModules              = "kube_ovn_fastpath.ko"
-	DefaultRPMs                 = "openvswitch-kmod"
-	DefaultVlanID               = "100"
-	DefaultOvnLabel             = "node-role.kubernetes.io/control-plane"
-	DefaultDPDKVersion          = "19.11"
-	DefaultDNSAddress           = "114.114.114.114"
-	DefaultDpdkTunnelIface      = "br-phy"
-	DefaultCNIConfigPriority    = "01"
-	DefaultOpenEBSBasePath      = "/var/openebs/local"
+	DefaultPreDir                  = "kubekey"
+	DefaultTmpDir                  = "/tmp/kubekey"
+	DefaultSSHPort                 = 22
+	DefaultLBPort                  = 6443
+	DefaultApiserverPort           = 6443
+	DefaultLBDomain                = "lb.kubesphere.local"
+	DefaultNetworkPlugin           = "calico"
+	DefaultPodsCIDR                = "10.233.64.0/18"
+	DefaultServiceCIDR             = "10.233.0.0/18"
+	DefaultKubeImageNamespace      = "kubesphere"
+	DefaultClusterName             = "cluster.local"
+	DefaultDNSDomain               = "cluster.local"
+	DefaultArch                    = "amd64"
+	DefaultSSHTimeout              = 30
+	DefaultEtcdVersion             = "v3.5.13"
+	DefaultEtcdPort                = "2379"
+	DefaultDockerVersion           = "24.0.9"
+	DefaultCriDockerdVersion       = "0.3.10"
+	DefaultBuildxVersion           = "v0.14.0"
+	DefaultContainerdVersion       = "1.7.13"
+	DefaultRuncVersion             = "v1.1.12"
+	DefaultCrictlVersion           = "v1.29.0"
+	DefaultKubeVersion             = "v1.23.17"
+	DefaultCalicoVersion           = "v3.27.4"
+	DefaultFlannelVersion          = "v0.21.3"
+	DefaultFlannelCniPluginVersion = "v1.1.2"
+	DefaultCniVersion              = "v1.2.0"
+	DefaultCiliumVersion           = "v1.15.3"
+	DefaulthybridnetVersion        = "v0.8.6"
+	DefaultKubeovnVersion          = "v1.10.10"
+	DefalutMultusVersion           = "v3.8"
+	DefaultHelmVersion             = "v3.14.3"
+	DefaultDockerComposeVersion    = "v2.26.1"
+	DefaultRegistryVersion         = "2"
+	DefaultHarborVersion           = "v2.10.1"
+	DefaultMaxPods                 = 110
+	DefaultPodPidsLimit            = 10000
+	DefaultNodeCidrMaskSize        = 24
+	DefaultNodeCidrMaskSizeIPv6    = 120
+	DefaultIPIPMode                = "Always"
+	DefaultVXLANMode               = "Never"
+	DefaultVethMTU                 = 0
+	DefaultBackendMode             = "vxlan"
+	DefaultProxyMode               = "ipvs"
+	DefaultCrioEndpoint            = "unix:///var/run/crio/crio.sock"
+	DefaultContainerdEndpoint      = "unix:///run/containerd/containerd.sock"
+	DefaultCriDockerdEndpoint      = "unix:///var/run/cri-dockerd.sock"
+	DefaultIsulaEndpoint           = "unix:///var/run/isulad.sock"
+	Etcd                           = "etcd"
+	Master                         = "master"
+	ControlPlane                   = "control-plane"
+	Worker                         = "worker"
+	K8s                            = "k8s"
+	Registry                       = "registry"
+	DefaultEtcdBackupDir           = "/var/backups/kube_etcd"
+	DefaultEtcdBackupPeriod        = 1440
+	DefaultKeepBackNumber          = 5
+	DefaultEtcdBackupScriptDir     = "/usr/local/bin/kube-scripts"
+	DefaultPodGateway              = "10.233.64.1"
+	DefaultJoinCIDR                = "100.64.0.0/16"
+	DefaultNetworkType             = "geneve"
+	DefaultTunnelType              = "geneve"
+	DefaultPodNicType              = "veth-pair"
+	DefaultModules                 = "kube_ovn_fastpath.ko"
+	DefaultRPMs                    = "openvswitch-kmod"
+	DefaultVlanID                  = "100"
+	DefaultOvnLabel                = "node-role.kubernetes.io/control-plane"
+	DefaultDPDKVersion             = "19.11"
+	DefaultDNSAddress              = "114.114.114.114"
+	DefaultDpdkTunnelIface         = "br-phy"
+	DefaultCNIConfigPriority       = "01"
+	DefaultOpenEBSBasePath         = "/var/openebs/local"
 
 	Docker     = "docker"
-	Conatinerd = "containerd"
+	Containerd = "containerd"
 	Crio       = "crio"
 	Isula      = "isula"
 
@@ -114,6 +120,7 @@ func (cfg *ClusterSpec) SetDefaultClusterSpec() (*ClusterSpec, map[string][]*Kub
 	clusterCfg.Storage = SetDefaultStorageCfg(cfg)
 	clusterCfg.System = cfg.System
 	clusterCfg.Kubernetes = SetDefaultClusterCfg(cfg)
+	clusterCfg.DNS = cfg.DNS
 	clusterCfg.Registry = cfg.Registry
 	clusterCfg.Addons = cfg.Addons
 	clusterCfg.KubeSphere = cfg.KubeSphere
@@ -132,6 +139,9 @@ func (cfg *ClusterSpec) SetDefaultClusterSpec() (*ClusterSpec, map[string][]*Kub
 	}
 	if cfg.Kubernetes.NodeCidrMaskSize == 0 {
 		clusterCfg.Kubernetes.NodeCidrMaskSize = DefaultNodeCidrMaskSize
+	}
+	if cfg.Kubernetes.NodeCidrMaskSizeIPv6 == 0 {
+		clusterCfg.Kubernetes.NodeCidrMaskSizeIPv6 = DefaultNodeCidrMaskSizeIPv6
 	}
 	if cfg.Kubernetes.ProxyMode == "" {
 		clusterCfg.Kubernetes.ProxyMode = DefaultProxyMode
@@ -183,16 +193,11 @@ func SetDefaultHostsCfg(cfg *ClusterSpec) []HostCfg {
 }
 
 func SetDefaultLBCfg(cfg *ClusterSpec, masterGroup []*KubeHost) ControlPlaneEndpoint {
-	//The detection is not an HA environment, and the address at LB does not need input
-	if len(masterGroup) == 1 && cfg.ControlPlaneEndpoint.Address != "" {
-		fmt.Println("When the environment is not HA, the LB address does not need to be entered, so delete the corresponding value.")
-		os.Exit(0)
-	}
-
 	//Check whether LB should be configured
-	if len(masterGroup) >= 3 && !cfg.ControlPlaneEndpoint.IsInternalLBEnabled() && cfg.ControlPlaneEndpoint.Address == "" {
-		fmt.Println("When the environment has at least three masters, You must set the value of the LB address or enable the internal loadbalancer.")
-		os.Exit(0)
+	if len(masterGroup) >= 2 && !cfg.ControlPlaneEndpoint.IsInternalLBEnabled() && cfg.ControlPlaneEndpoint.Address == "" && !cfg.ControlPlaneEndpoint.EnableExternalDNS() {
+		fmt.Println()
+		fmt.Println("Warning: When there are at least two nodes in the control-plane, you should set the value of the LB address or enable the internal loadbalancer, or set 'controlPlaneEndpoint.externalDNS' to 'true' if the 'controlPlaneEndpoint.domain' can be resolved in your dns server.")
+		fmt.Println()
 	}
 
 	// Check whether LB address and the internal LB are both enabled
@@ -201,8 +206,8 @@ func SetDefaultLBCfg(cfg *ClusterSpec, masterGroup []*KubeHost) ControlPlaneEndp
 		os.Exit(0)
 	}
 
-	if cfg.ControlPlaneEndpoint.Address == "" || cfg.ControlPlaneEndpoint.Address == "127.0.0.1" {
-		cfg.ControlPlaneEndpoint.Address = masterGroup[0].InternalAddress
+	if (cfg.ControlPlaneEndpoint.Address == "" && !cfg.ControlPlaneEndpoint.EnableExternalDNS()) || cfg.ControlPlaneEndpoint.Address == "127.0.0.1" {
+		cfg.ControlPlaneEndpoint.Address = masterGroup[0].GetInternalIPv4Address()
 	}
 	if cfg.ControlPlaneEndpoint.Domain == "" {
 		cfg.ControlPlaneEndpoint.Domain = DefaultLBDomain
@@ -317,10 +322,14 @@ func SetDefaultClusterCfg(cfg *ClusterSpec) Kubernetes {
 	if cfg.Kubernetes.ContainerRuntimeEndpoint == "" {
 		switch cfg.Kubernetes.ContainerManager {
 		case Docker:
-			cfg.Kubernetes.ContainerRuntimeEndpoint = ""
+			if cfg.Kubernetes.IsAtLeastV124() {
+				cfg.Kubernetes.ContainerRuntimeEndpoint = DefaultCriDockerdEndpoint
+			} else {
+				cfg.Kubernetes.ContainerRuntimeEndpoint = ""
+			}
 		case Crio:
 			cfg.Kubernetes.ContainerRuntimeEndpoint = DefaultCrioEndpoint
-		case Conatinerd:
+		case Containerd:
 			cfg.Kubernetes.ContainerRuntimeEndpoint = DefaultContainerdEndpoint
 		case Isula:
 			cfg.Kubernetes.ContainerRuntimeEndpoint = DefaultIsulaEndpoint

@@ -52,7 +52,7 @@ func (s *SyncContainerd) Execute(runtime connector.Runtime) error {
 	}
 	binariesMap := binariesMapObj.(map[string]*files.KubeBinary)
 
-	containerd, ok := binariesMap[common.Conatinerd]
+	containerd, ok := binariesMap[common.Containerd]
 	if !ok {
 		return errors.New("get KubeBinary key containerd by pipeline cache failed")
 	}
@@ -63,7 +63,7 @@ func (s *SyncContainerd) Execute(runtime connector.Runtime) error {
 	}
 
 	if _, err := runtime.GetRunner().SudoCmd(
-		fmt.Sprintf("mkdir -p /usr/bin && tar -zxf %s && mv bin/* /usr/bin && rm -rf bin", dst),
+		fmt.Sprintf("mkdir -p /usr/bin && cd %s && tar -zxf %s && mv bin/* /usr/bin && rm -rf bin", common.TmpDir, dst),
 		false); err != nil {
 		return errors.Wrap(errors.WithStack(err), fmt.Sprintf("install containerd binaries failed"))
 	}
@@ -163,11 +163,7 @@ func (d *DisableContainerd) Execute(runtime connector.Runtime) error {
 		filepath.Join("/etc/systemd/system", templates.ContainerdService.Name()),
 		filepath.Join("/etc/containerd", templates.ContainerdConfig.Name()),
 		filepath.Join("/etc", templates.CrictlConfig.Name()),
-	}
-	if d.KubeConf.Cluster.Registry.DataRoot != "" {
-		files = append(files, d.KubeConf.Cluster.Registry.DataRoot)
-	} else {
-		files = append(files, "/var/lib/containerd")
+		templates.ContainerdDataDir(d.KubeConf),
 	}
 
 	for _, file := range files {
@@ -226,7 +222,7 @@ func (i *RestartCri) Execute(runtime connector.Runtime) error {
 		if _, err := runtime.GetRunner().SudoCmd(fmt.Sprintf("systemctl daemon-reload && systemctl restart docker "), true); err != nil {
 			return errors.Wrap(err, "restart docker")
 		}
-	case common.Conatinerd:
+	case common.Containerd:
 		if _, err := runtime.GetRunner().SudoCmd(fmt.Sprintf("systemctl daemon-reload && systemctl restart containerd"), true); err != nil {
 			return errors.Wrap(err, "restart containerd")
 		}
@@ -249,7 +245,7 @@ func (i *EditKubeletCri) Execute(runtime connector.Runtime) error {
 			true); err != nil {
 			return errors.Wrap(err, "Change KubeletTo Containerd failed")
 		}
-	case common.Conatinerd:
+	case common.Containerd:
 		if _, err := runtime.GetRunner().SudoCmd(fmt.Sprintf(
 			"sed -i 's#--network-plugin=cni --pod#--network-plugin=cni --container-runtime=remote --container-runtime-endpoint=unix:///run/containerd/containerd.sock --pod#' /var/lib/kubelet/kubeadm-flags.env"),
 			true); err != nil {
@@ -333,7 +329,7 @@ func MigrateSelfNodeCriTasks(runtime connector.Runtime, kubeAction common.KubeAc
 			Parallel: false,
 		}
 		tasks = append(tasks, CordonNode, DrainNode, Uninstall)
-	case common.Conatinerd:
+	case common.Containerd:
 		Uninstall := &task.RemoteTask{
 			Name:  "UninstallContainerd",
 			Desc:  "Uninstall containerd",
@@ -386,7 +382,7 @@ func MigrateSelfNodeCriTasks(runtime connector.Runtime, kubeAction common.KubeAc
 				Data: util.Data{
 					"Mirrors":            templates.Mirrors(kubeAction.KubeConf),
 					"InsecureRegistries": templates.InsecureRegistries(kubeAction.KubeConf),
-					"DataRoot":           templates.DataRoot(kubeAction.KubeConf),
+					"DataRoot":           templates.DockerDataDir(kubeAction.KubeConf),
 				},
 			},
 			Parallel: false,
@@ -418,7 +414,7 @@ func MigrateSelfNodeCriTasks(runtime connector.Runtime, kubeAction common.KubeAc
 		tasks = append(tasks, syncBinaries, generateDockerService, generateDockerConfig, enableDocker, dockerLoginRegistry,
 			RestartCri, EditKubeletCri, RestartKubeletNode, UnCordonNode)
 	}
-	if kubeAction.KubeConf.Arg.Type == common.Conatinerd {
+	if kubeAction.KubeConf.Arg.Type == common.Containerd {
 		syncContainerd := &task.RemoteTask{
 			Name:  "SyncContainerd",
 			Desc:  "Sync containerd binaries",
@@ -470,7 +466,7 @@ func MigrateSelfNodeCriTasks(runtime connector.Runtime, kubeAction common.KubeAc
 					"InsecureRegistries": kubeAction.KubeConf.Cluster.Registry.InsecureRegistries,
 					"SandBoxImage":       images.GetImage(runtime, kubeAction.KubeConf, "pause").ImageName(),
 					"Auths":              registry.DockerRegistryAuthEntries(kubeAction.KubeConf.Cluster.Registry.Auths),
-					"DataRoot":           templates.DataRoot(kubeAction.KubeConf),
+					"DataRoot":           templates.ContainerdDataDir(kubeAction.KubeConf),
 				},
 			},
 			Parallel: false,

@@ -48,6 +48,8 @@ func (d *DeployNetworkPluginModule) Init() {
 		d.Tasks = deployCilium(d)
 	case common.Kubeovn:
 		d.Tasks = deployKubeOVN(d)
+	case common.Hybridnet:
+		d.Tasks = deployHybridnet(d)
 	default:
 		return
 	}
@@ -90,34 +92,7 @@ func deployMultus(d *DeployNetworkPluginModule) []task.Interface {
 }
 
 func deployCalico(d *DeployNetworkPluginModule) []task.Interface {
-	generateCalicoOld := &task.RemoteTask{
-		Name:  "GenerateCalico",
-		Desc:  "Generate calico",
-		Hosts: d.Runtime.GetHostsByRole(common.Master),
-		Prepare: &prepare.PrepareCollection{
-			new(common.OnlyFirstMaster),
-			new(OldK8sVersion),
-		},
-		Action: &action.Template{
-			Template: templates.CalicoOld,
-			Dst:      filepath.Join(common.KubeConfigDir, templates.CalicoOld.Name()),
-			Data: util.Data{
-				"KubePodsCIDR":           d.KubeConf.Cluster.Network.KubePodsCIDR,
-				"CalicoCniImage":         images.GetImage(d.Runtime, d.KubeConf, "calico-cni").ImageName(),
-				"CalicoNodeImage":        images.GetImage(d.Runtime, d.KubeConf, "calico-node").ImageName(),
-				"CalicoFlexvolImage":     images.GetImage(d.Runtime, d.KubeConf, "calico-flexvol").ImageName(),
-				"CalicoControllersImage": images.GetImage(d.Runtime, d.KubeConf, "calico-kube-controllers").ImageName(),
-				"TyphaEnabled":           len(d.Runtime.GetHostsByRole(common.K8s)) > 50,
-				"VethMTU":                d.KubeConf.Cluster.Network.Calico.VethMTU,
-				"NodeCidrMaskSize":       d.KubeConf.Cluster.Kubernetes.NodeCidrMaskSize,
-				"IPIPMode":               d.KubeConf.Cluster.Network.Calico.IPIPMode,
-				"VXLANMode":              d.KubeConf.Cluster.Network.Calico.VXLANMode,
-			},
-		},
-		Parallel: true,
-	}
-
-	generateCalicoNew := &task.RemoteTask{
+	generateCalicoManifests := &task.RemoteTask{
 		Name:  "GenerateCalico",
 		Desc:  "Generate calico",
 		Hosts: d.Runtime.GetHostsByRole(common.Master),
@@ -125,24 +100,7 @@ func deployCalico(d *DeployNetworkPluginModule) []task.Interface {
 			new(common.OnlyFirstMaster),
 			&OldK8sVersion{Not: true},
 		},
-		Action: &action.Template{
-			Template: templates.CalicoNew,
-			Dst:      filepath.Join(common.KubeConfigDir, templates.CalicoNew.Name()),
-			Data: util.Data{
-				"KubePodsCIDR":            d.KubeConf.Cluster.Network.KubePodsCIDR,
-				"CalicoCniImage":          images.GetImage(d.Runtime, d.KubeConf, "calico-cni").ImageName(),
-				"CalicoNodeImage":         images.GetImage(d.Runtime, d.KubeConf, "calico-node").ImageName(),
-				"CalicoFlexvolImage":      images.GetImage(d.Runtime, d.KubeConf, "calico-flexvol").ImageName(),
-				"CalicoControllersImage":  images.GetImage(d.Runtime, d.KubeConf, "calico-kube-controllers").ImageName(),
-				"CalicoTyphaImage":        images.GetImage(d.Runtime, d.KubeConf, "calico-typha").ImageName(),
-				"TyphaEnabled":            len(d.Runtime.GetHostsByRole(common.K8s)) > 50,
-				"VethMTU":                 d.KubeConf.Cluster.Network.Calico.VethMTU,
-				"NodeCidrMaskSize":        d.KubeConf.Cluster.Kubernetes.NodeCidrMaskSize,
-				"IPIPMode":                d.KubeConf.Cluster.Network.Calico.IPIPMode,
-				"VXLANMode":               d.KubeConf.Cluster.Network.Calico.VXLANMode,
-				"ConatinerManagerIsIsula": d.KubeConf.Cluster.Kubernetes.ContainerManager == "isula",
-			},
-		},
+		Action:   new(GenerateCalicoManifests),
 		Parallel: true,
 	}
 
@@ -156,32 +114,43 @@ func deployCalico(d *DeployNetworkPluginModule) []task.Interface {
 		Retry:    5,
 	}
 
-	if K8sVersionAtLeast(d.KubeConf.Cluster.Kubernetes.Version, "v1.16.0") {
-		return []task.Interface{
-			generateCalicoNew,
-			deploy,
-		}
-	} else {
-		return []task.Interface{
-			generateCalicoOld,
-			deploy,
-		}
+	return []task.Interface{
+		generateCalicoManifests,
+		deploy,
 	}
 }
 
 func deployFlannel(d *DeployNetworkPluginModule) []task.Interface {
-	generateFlannel := &task.RemoteTask{
+	generateFlannelPSP := &task.RemoteTask{
 		Name:    "GenerateFlannel",
 		Desc:    "Generate flannel",
 		Hosts:   d.Runtime.GetHostsByRole(common.Master),
 		Prepare: new(common.OnlyFirstMaster),
 		Action: &action.Template{
-			Template: templates.Flannel,
-			Dst:      filepath.Join(common.KubeConfigDir, templates.Flannel.Name()),
+			Template: templates.FlannelPSP,
+			Dst:      filepath.Join(common.KubeConfigDir, templates.FlannelPSP.Name()),
 			Data: util.Data{
-				"KubePodsCIDR": d.KubeConf.Cluster.Network.KubePodsCIDR,
-				"FlannelImage": images.GetImage(d.Runtime, d.KubeConf, "flannel").ImageName(),
-				"BackendMode":  d.KubeConf.Cluster.Network.Flannel.BackendMode,
+				"KubePodsCIDR":       d.KubeConf.Cluster.Network.KubePodsCIDR,
+				"FlannelImage":       images.GetImage(d.Runtime, d.KubeConf, "flannel").ImageName(),
+				"FlannelPluginImage": images.GetImage(d.Runtime, d.KubeConf, "flannel-cni-plugin").ImageName(),
+				"BackendMode":        d.KubeConf.Cluster.Network.Flannel.BackendMode,
+			},
+		},
+		Parallel: true,
+	}
+	generateFlannelPS := &task.RemoteTask{
+		Name:    "GenerateFlannel",
+		Desc:    "Generate flannel",
+		Hosts:   d.Runtime.GetHostsByRole(common.Master),
+		Prepare: new(common.OnlyFirstMaster),
+		Action: &action.Template{
+			Template: templates.FlannelPS,
+			Dst:      filepath.Join(common.KubeConfigDir, templates.FlannelPS.Name()),
+			Data: util.Data{
+				"KubePodsCIDR":       d.KubeConf.Cluster.Network.KubePodsCIDR,
+				"FlannelImage":       images.GetImage(d.Runtime, d.KubeConf, "flannel").ImageName(),
+				"FlannelPluginImage": images.GetImage(d.Runtime, d.KubeConf, "flannel-cni-plugin").ImageName(),
+				"BackendMode":        d.KubeConf.Cluster.Network.Flannel.BackendMode,
 			},
 		},
 		Parallel: true,
@@ -197,9 +166,16 @@ func deployFlannel(d *DeployNetworkPluginModule) []task.Interface {
 		Retry:    5,
 	}
 
-	return []task.Interface{
-		generateFlannel,
-		deploy,
+	if K8sVersionAtLeast(d.KubeConf.Cluster.Kubernetes.Version, "v1.25.0") {
+		return []task.Interface{
+			generateFlannelPS,
+			deploy,
+		}
+	} else {
+		return []task.Interface{
+			generateFlannelPSP,
+			deploy,
+		}
 	}
 }
 
@@ -212,8 +188,8 @@ func deployCilium(d *DeployNetworkPluginModule) []task.Interface {
 	}
 
 	syncCiliumChart := &task.RemoteTask{
-		Name:     "SyncKubeBinary",
-		Desc:     "Synchronize kubernetes binaries",
+		Name:     "SyncCiliumChart",
+		Desc:     "Synchronize cilium chart",
 		Hosts:    d.Runtime.GetHostsByRole(common.Master),
 		Prepare:  new(common.OnlyFirstMaster),
 		Action:   new(SyncCiliumChart),
@@ -305,6 +281,41 @@ func deployKubeOVN(d *DeployNetworkPluginModule) []task.Interface {
 		deploy,
 		kubectlKo,
 		chmod,
+	}
+}
+
+func deployHybridnet(d *DeployNetworkPluginModule) []task.Interface {
+
+	releaseHybridnetChart := &task.LocalTask{
+		Name:   "GenerateHybridnetChart",
+		Desc:   "Generate hybridnet chart",
+		Action: new(ReleaseHybridnetChart),
+	}
+
+	syncHybridnetChart := &task.RemoteTask{
+		Name:     "SyncHybridnetChart",
+		Desc:     "Synchronize hybridnet chart",
+		Hosts:    d.Runtime.GetHostsByRole(common.Master),
+		Prepare:  new(common.OnlyFirstMaster),
+		Action:   new(SyncHybridnetChart),
+		Parallel: true,
+		Retry:    2,
+	}
+
+	deploy := &task.RemoteTask{
+		Name:     "DeployHybridnet",
+		Desc:     "Deploy hybridnet",
+		Hosts:    d.Runtime.GetHostsByRole(common.Master),
+		Prepare:  new(common.OnlyFirstMaster),
+		Action:   new(DeployHybridnet),
+		Parallel: true,
+		Retry:    5,
+	}
+
+	return []task.Interface{
+		releaseHybridnetChart,
+		syncHybridnetChart,
+		deploy,
 	}
 }
 

@@ -19,7 +19,9 @@ package kubernetes
 import (
 	"fmt"
 	"path/filepath"
-	"time"
+
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/util"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/plugins/dns"
 
 	"github.com/pkg/errors"
 
@@ -30,6 +32,7 @@ import (
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/task"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/images"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/kubernetes/templates"
+	dnsTemplates "github.com/kubesphere/kubekey/v3/cmd/kk/pkg/plugins/dns/templates"
 )
 
 type StatusModule struct {
@@ -75,12 +78,12 @@ func (i *InstallKubeBinariesModule) Init() {
 		Retry:    2,
 	}
 
-	syncKubelet := &task.RemoteTask{
-		Name:     "SyncKubelet",
-		Desc:     "Synchronize kubelet",
+	chmodKubelet := &task.RemoteTask{
+		Name:     "ChmodKubelet",
+		Desc:     "Change kubelet mode",
 		Hosts:    i.Runtime.GetHostsByRole(common.K8s),
 		Prepare:  &NodeInCluster{Not: true},
-		Action:   new(SyncKubelet),
+		Action:   new(ChmodKubelet),
 		Parallel: true,
 		Retry:    2,
 	}
@@ -120,7 +123,7 @@ func (i *InstallKubeBinariesModule) Init() {
 
 	i.Tasks = []task.Interface{
 		syncBinary,
-		syncKubelet,
+		chmodKubelet,
 		generateKubeletService,
 		enableKubelet,
 		generateKubeletEnv,
@@ -148,6 +151,40 @@ func (i *InitKubernetesModule) Init() {
 			WithSecurityEnhancement: i.KubeConf.Arg.SecurityEnhancement,
 		},
 		Parallel: true,
+	}
+
+	generateAuditPolicy := &task.RemoteTask{
+		Name:  "GenerateAduitPolicy",
+		Desc:  "Generate audit policy",
+		Hosts: i.Runtime.GetHostsByRole(common.Master),
+		Prepare: &prepare.PrepareCollection{
+			new(common.EnableAudit),
+			new(common.OnlyFirstMaster),
+			&ClusterIsExist{Not: true},
+		},
+		Action: &action.Template{
+			Template: templates.AuditPolicy,
+			Dst:      filepath.Join("/etc/kubernetes/audit", templates.AuditPolicy.Name()),
+		},
+		Parallel: true,
+		Retry:    2,
+	}
+
+	generateAuditWebhook := &task.RemoteTask{
+		Name:  "GenerateAduitWebhook",
+		Desc:  "Generate audit webhook",
+		Hosts: i.Runtime.GetHostsByRole(common.Master),
+		Prepare: &prepare.PrepareCollection{
+			new(common.EnableAudit),
+			new(common.OnlyFirstMaster),
+			&ClusterIsExist{Not: true},
+		},
+		Action: &action.Template{
+			Template: templates.AuditWebhook,
+			Dst:      filepath.Join("/etc/kubernetes/audit", templates.AuditWebhook.Name()),
+		},
+		Parallel: true,
+		Retry:    2,
 	}
 
 	kubeadmInit := &task.RemoteTask{
@@ -189,26 +226,13 @@ func (i *InitKubernetesModule) Init() {
 		Retry:    5,
 	}
 
-	addWorkerLabel := &task.RemoteTask{
-		Name:  "AddWorkerLabel",
-		Desc:  "Add worker label",
-		Hosts: i.Runtime.GetHostsByRole(common.Master),
-		Prepare: &prepare.PrepareCollection{
-			new(common.OnlyFirstMaster),
-			&ClusterIsExist{Not: true},
-			new(common.IsWorker),
-		},
-		Action:   new(AddWorkerLabel),
-		Parallel: true,
-		Retry:    5,
-	}
-
 	i.Tasks = []task.Interface{
 		generateKubeadmConfig,
+		generateAuditPolicy,
+		generateAuditWebhook,
 		kubeadmInit,
 		copyKubeConfig,
 		removeMasterTaint,
-		addWorkerLabel,
 	}
 }
 
@@ -234,6 +258,38 @@ func (j *JoinNodesModule) Init() {
 			WithSecurityEnhancement: j.KubeConf.Arg.SecurityEnhancement,
 		},
 		Parallel: true,
+	}
+
+	generateAuditPolicy := &task.RemoteTask{
+		Name:  "GenerateAduitPolicy",
+		Desc:  "Generate audit policy",
+		Hosts: j.Runtime.GetHostsByRole(common.Master),
+		Prepare: &prepare.PrepareCollection{
+			new(common.EnableAudit),
+			&NodeInCluster{Not: true},
+		},
+		Action: &action.Template{
+			Template: templates.AuditPolicy,
+			Dst:      filepath.Join("/etc/kubernetes/audit", templates.AuditPolicy.Name()),
+		},
+		Parallel: true,
+		Retry:    2,
+	}
+
+	generateAuditWebhook := &task.RemoteTask{
+		Name:  "GenerateAduitWebhook",
+		Desc:  "Generate audit webhook",
+		Hosts: j.Runtime.GetHostsByRole(common.Master),
+		Prepare: &prepare.PrepareCollection{
+			new(common.EnableAudit),
+			&NodeInCluster{Not: true},
+		},
+		Action: &action.Template{
+			Template: templates.AuditWebhook,
+			Dst:      filepath.Join("/etc/kubernetes/audit", templates.AuditWebhook.Name()),
+		},
+		Parallel: true,
+		Retry:    2,
 	}
 
 	joinMasterNode := &task.RemoteTask{
@@ -286,54 +342,24 @@ func (j *JoinNodesModule) Init() {
 		Retry:    5,
 	}
 
-	addWorkerLabelToMaster := &task.RemoteTask{
-		Name:  "AddWorkerLabelToMaster",
-		Desc:  "Add worker label to master",
-		Hosts: j.Runtime.GetHostsByRole(common.Master),
-		Prepare: &prepare.PrepareCollection{
-			&NodeInCluster{Not: true},
-			new(common.IsWorker),
-		},
-		Action:   new(AddWorkerLabel),
-		Parallel: true,
-		Retry:    5,
-	}
-
-	syncKubeConfig := &task.RemoteTask{
-		Name:  "SyncKubeConfig",
-		Desc:  "Synchronize kube config to worker",
-		Hosts: j.Runtime.GetHostsByRole(common.Worker),
-		Prepare: &prepare.PrepareCollection{
-			&NodeInCluster{Not: true},
-			new(common.OnlyWorker),
-		},
-		Action:   new(SyncKubeConfigToWorker),
-		Parallel: true,
-		Retry:    3,
-	}
-
-	addWorkerLabelToWorker := &task.RemoteTask{
-		Name:  "AddWorkerLabelToWorker",
-		Desc:  "Add worker label to worker",
-		Hosts: j.Runtime.GetHostsByRole(common.Worker),
-		Prepare: &prepare.PrepareCollection{
-			&NodeInCluster{Not: true},
-			new(common.OnlyWorker),
-		},
-		Action:   new(AddWorkerLabel),
-		Parallel: true,
-		Retry:    5,
+	addWorkerLabelToNode := &task.RemoteTask{
+		Name:    "addWorkerLabelToNode",
+		Desc:    "Add worker label to all nodes",
+		Hosts:   j.Runtime.GetHostsByRole(common.Master),
+		Prepare: new(common.OnlyFirstMaster),
+		Action:  new(AddWorkerLabel),
+		Retry:   3,
 	}
 
 	j.Tasks = []task.Interface{
 		generateKubeadmConfig,
+		generateAuditPolicy,
+		generateAuditWebhook,
 		joinMasterNode,
 		joinWorkerNode,
 		copyKubeConfig,
 		removeMasterTaint,
-		addWorkerLabelToMaster,
-		syncKubeConfig,
-		addWorkerLabelToWorker,
+		addWorkerLabelToNode,
 	}
 }
 
@@ -371,11 +397,32 @@ func (c *CompareConfigAndClusterInfoModule) Init() {
 		Desc:    "Find information about nodes that are expected to be deleted",
 		Hosts:   c.Runtime.GetHostsByRole(common.Master),
 		Prepare: new(common.OnlyFirstMaster),
-		Action:  new(FindNode),
+		//Action:  new(FindNode),
+		Action: new(FilterFirstMaster),
 	}
 
 	c.Tasks = []task.Interface{
 		check,
+	}
+}
+
+type RestartKubeletModule struct {
+	common.KubeModule
+}
+
+func (r *RestartKubeletModule) init() {
+	r.Name = "RestartKubeletModule"
+	r.Desc = "restart node kubelet service "
+	restart := &task.RemoteTask{
+		Name:   "RestartKubelet",
+		Desc:   "Restart kubelet service",
+		Hosts:  r.Runtime.GetHostsByRole(common.Master),
+		Action: new(RestartKubelet),
+		Retry:  5,
+	}
+
+	r.Tasks = []task.Interface{
+		restart,
 	}
 }
 
@@ -426,8 +473,23 @@ func (s *SetUpgradePlanModule) Init() {
 		Action: &SetUpgradePlan{Step: s.Step},
 	}
 
+	generateKubeadmConfigInit := &task.RemoteTask{
+		Name:  "GenerateKubeadmConfig",
+		Desc:  "Generate kubeadm config",
+		Hosts: s.Runtime.GetHostsByRole(common.Master),
+		Prepare: &prepare.PrepareCollection{
+			new(common.OnlyFirstMaster),
+		},
+		Action: &GenerateKubeadmConfig{
+			IsInitConfiguration:     true,
+			WithSecurityEnhancement: s.KubeConf.Arg.SecurityEnhancement,
+		},
+		Parallel: true,
+	}
+
 	s.Tasks = []task.Interface{
 		plan,
+		generateKubeadmConfigInit,
 	}
 }
 
@@ -447,6 +509,7 @@ func (p *ProgressiveUpgradeModule) Init() {
 		Action:  new(CalculateNextVersion),
 	}
 
+	// prepare
 	download := &task.LocalTask{
 		Name:    "DownloadBinaries",
 		Desc:    "Download installation binaries",
@@ -463,6 +526,7 @@ func (p *ProgressiveUpgradeModule) Init() {
 		Parallel: true,
 	}
 
+	// upgrade kubernetes
 	syncBinary := &task.RemoteTask{
 		Name:     "SyncKubeBinary",
 		Desc:     "Synchronize kubernetes binaries",
@@ -494,6 +558,63 @@ func (p *ProgressiveUpgradeModule) Init() {
 		Parallel: false,
 	}
 
+	generateCoreDNS := &task.RemoteTask{
+		Name:  "GenerateCoreDNS",
+		Desc:  "Generate coredns manifests",
+		Hosts: p.Runtime.GetHostsByRole(common.Master),
+		Prepare: &prepare.PrepareCollection{
+			new(NotEqualPlanVersion),
+			new(common.OnlyFirstMaster),
+		},
+		Action:   new(dns.GenerateCorednsmanifests),
+		Parallel: true,
+	}
+
+	applyCoredns := &task.RemoteTask{
+		Name:  "DeployCoreDNS",
+		Desc:  "Deploy coredns",
+		Hosts: p.Runtime.GetHostsByRole(common.Master),
+		Prepare: &prepare.PrepareCollection{
+			new(NotEqualPlanVersion),
+			new(common.OnlyFirstMaster),
+		},
+		Action:   new(dns.DeployCoreDNS),
+		Parallel: true,
+	}
+
+	generateNodeLocalDNS := &task.RemoteTask{
+		Name:  "GenerateNodeLocalDNS",
+		Desc:  "Generate nodelocaldns",
+		Hosts: p.Runtime.GetHostsByRole(common.Master),
+		Prepare: &prepare.PrepareCollection{
+			new(NotEqualPlanVersion),
+			new(common.OnlyFirstMaster),
+			new(dns.EnableNodeLocalDNS),
+		},
+		Action: &action.Template{
+			Template: dnsTemplates.NodeLocalDNSService,
+			Dst:      filepath.Join(common.KubeConfigDir, dnsTemplates.NodeLocalDNSService.Name()),
+			Data: util.Data{
+				"NodelocaldnsImage": images.GetImage(p.Runtime, p.KubeConf, "k8s-dns-node-cache").ImageName(),
+				"DNSEtcHosts":       p.KubeConf.Cluster.DNS.DNSEtcHosts,
+			},
+		},
+		Parallel: true,
+	}
+
+	applyNodeLocalDNS := &task.RemoteTask{
+		Name:  "DeployNodeLocalDNS",
+		Desc:  "Deploy nodelocaldns",
+		Hosts: p.Runtime.GetHostsByRole(common.Master),
+		Prepare: &prepare.PrepareCollection{
+			new(NotEqualPlanVersion),
+			new(common.OnlyFirstMaster),
+			new(dns.EnableNodeLocalDNS)},
+		Action:   new(dns.DeployNodeLocalDNS),
+		Parallel: true,
+		Retry:    5,
+	}
+
 	upgradeKubeWorker := &task.RemoteTask{
 		Name:  "UpgradeClusterOnWorker",
 		Desc:  "Upgrade cluster on worker",
@@ -503,18 +624,6 @@ func (p *ProgressiveUpgradeModule) Init() {
 			new(common.OnlyWorker),
 		},
 		Action:   &UpgradeKubeWorker{ModuleName: p.Name},
-		Parallel: false,
-	}
-
-	reconfigureDNS := &task.RemoteTask{
-		Name:  "ReconfigureCoreDNS",
-		Desc:  "Reconfigure CoreDNS",
-		Hosts: p.Runtime.GetHostsByRole(common.Master),
-		Prepare: &prepare.PrepareCollection{
-			new(common.OnlyFirstMaster),
-			new(NotEqualPlanVersion),
-		},
-		Action:   &ReconfigureDNS{ModuleName: p.Name},
 		Parallel: false,
 	}
 
@@ -533,7 +642,10 @@ func (p *ProgressiveUpgradeModule) Init() {
 		upgradeKubeMaster,
 		clusterStatus,
 		upgradeKubeWorker,
-		reconfigureDNS,
+		generateCoreDNS,
+		applyCoredns,
+		generateNodeLocalDNS,
+		applyNodeLocalDNS,
 		currentVersion,
 	}
 }
@@ -591,13 +703,12 @@ func (c *ConfigureKubernetesModule) Init() {
 	c.Desc = "Configure kubernetes"
 
 	configure := &task.RemoteTask{
-		Name:     "ConfigureKubernetes",
-		Desc:     "Configure kubernetes",
-		Hosts:    c.Runtime.GetHostsByRole(common.K8s),
-		Action:   new(ConfigureKubernetes),
-		Retry:    6,
-		Delay:    10 * time.Second,
-		Parallel: true,
+		Name:    "ConfigureKubernetes",
+		Desc:    "Configure kubernetes",
+		Hosts:   c.Runtime.GetHostsByRole(common.Master),
+		Prepare: new(common.OnlyFirstMaster),
+		Action:  new(ConfigureKubernetes),
+		Retry:   3,
 	}
 
 	c.Tasks = []task.Interface{

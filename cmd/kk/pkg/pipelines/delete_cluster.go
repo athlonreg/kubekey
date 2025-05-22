@@ -34,7 +34,7 @@ import (
 func NewDeleteClusterPipeline(runtime *common.KubeRuntime) error {
 	m := []module.Module{
 		&precheck.GreetingsModule{},
-		&confirm.DeleteClusterConfirmModule{},
+		&confirm.DeleteClusterConfirmModule{Skip: runtime.Arg.SkipConfirmCheck},
 		&kubernetes.ResetClusterModule{},
 		&container.UninstallContainerModule{Skip: !runtime.Arg.DeleteCRI},
 		&os.ClearOSEnvironmentModule{},
@@ -117,9 +117,7 @@ func DeleteCluster(args common.Argument) error {
 			return err
 		}
 	case common.Kubernetes:
-		if err := NewDeleteClusterPipeline(runtime); err != nil {
-			return err
-		}
+		fallthrough
 	default:
 		if err := NewDeleteClusterPipeline(runtime); err != nil {
 			return err

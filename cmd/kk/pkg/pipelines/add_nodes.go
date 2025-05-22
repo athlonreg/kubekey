@@ -46,16 +46,20 @@ func NewAddNodesPipeline(runtime *common.KubeRuntime) error {
 
 	m := []module.Module{
 		&precheck.GreetingsModule{},
+		&customscripts.CustomScriptsModule{Phase: "PreInstall", Scripts: runtime.Cluster.System.PreInstall},
 		&precheck.NodePreCheckModule{},
 		&confirm.InstallConfirmModule{},
 		&artifact.UnArchiveModule{Skip: noArtifact},
 		&os.RepositoryModule{Skip: noArtifact || !runtime.Arg.InstallPackages},
 		&binaries.NodeBinariesModule{},
-		&os.ConfigureOSModule{},
-		&customscripts.CustomScriptsModule{Phase: "PreInstall", Scripts: runtime.Cluster.System.PreInstall},
+		&os.ConfigureOSModule{Skip: runtime.Cluster.System.SkipConfigureOS},
 		&registry.RegistryCertsModule{Skip: len(runtime.GetHostsByRole(common.Registry)) == 0},
+		//for one master to multi master kube-vip
+		&loadbalancer.KubevipModule{Skip: !runtime.Cluster.ControlPlaneEndpoint.IsInternalLBEnabledVip()},
+		&kubernetes.RestartKubeletModule{},
 		&kubernetes.StatusModule{},
 		&container.InstallContainerModule{},
+		&container.InstallCriDockerdModule{Skip: runtime.Cluster.Kubernetes.ContainerManager != "docker"},
 		&images.PullModule{Skip: runtime.Arg.SkipPullImages},
 		&etcd.PreCheckModule{Skip: runtime.Cluster.Etcd.Type != kubekeyapiv1alpha2.KubeKey},
 		&etcd.CertsModule{},
@@ -91,7 +95,7 @@ func NewK3sAddNodesPipeline(runtime *common.KubeRuntime) error {
 		&artifact.UnArchiveModule{Skip: noArtifact},
 		&os.RepositoryModule{Skip: noArtifact || !runtime.Arg.InstallPackages},
 		&binaries.K3sNodeBinariesModule{},
-		&os.ConfigureOSModule{},
+		&os.ConfigureOSModule{Skip: runtime.Cluster.System.SkipConfigureOS},
 		&customscripts.CustomScriptsModule{Phase: "PreInstall", Scripts: runtime.Cluster.System.PreInstall},
 		&k3s.StatusModule{},
 		&etcd.PreCheckModule{Skip: runtime.Cluster.Etcd.Type != kubekeyapiv1alpha2.KubeKey},
@@ -128,7 +132,7 @@ func NewK8eAddNodesPipeline(runtime *common.KubeRuntime) error {
 		&artifact.UnArchiveModule{Skip: noArtifact},
 		&os.RepositoryModule{Skip: noArtifact || !runtime.Arg.InstallPackages},
 		&binaries.K8eNodeBinariesModule{},
-		&os.ConfigureOSModule{},
+		&os.ConfigureOSModule{Skip: runtime.Cluster.System.SkipConfigureOS},
 
 		&k8e.StatusModule{},
 		&etcd.PreCheckModule{Skip: runtime.Cluster.Etcd.Type != kubekeyapiv1alpha2.KubeKey},
@@ -186,9 +190,7 @@ func AddNodes(args common.Argument, downloadCmd string) error {
 			return err
 		}
 	case common.Kubernetes:
-		if err := NewAddNodesPipeline(runtime); err != nil {
-			return err
-		}
+		fallthrough
 	default:
 		if err := NewAddNodesPipeline(runtime); err != nil {
 			return err

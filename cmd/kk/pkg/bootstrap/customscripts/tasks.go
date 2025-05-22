@@ -18,7 +18,6 @@ package customscripts
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,7 +78,7 @@ func (t *CustomScriptTask) Execute(runtime connector.Runtime) error {
 	// wrap use bash file if shell has many lines.
 	RunBash := t.script.Bash
 	if strings.Index(RunBash, "\n") > 0 {
-		tmpFile, err := ioutil.TempFile(os.TempDir(), t.taskDir)
+		tmpFile, err := os.CreateTemp(os.TempDir(), t.taskDir)
 		if err != nil {
 			return errors.Wrapf(err, "create tmp Bash: %s/%s in local node, err:%s", os.TempDir(), t.taskDir, err)
 		}
@@ -97,8 +96,9 @@ func (t *CustomScriptTask) Execute(runtime connector.Runtime) error {
 		RunBash = "/bin/bash " + targetPath
 	}
 
+	cd_cmd := fmt.Sprintf("cd %s;", remoteTaskHome)
 	start := time.Now()
-	out, err := runtime.GetRunner().SudoCmd(RunBash, false)
+	out, err := runtime.GetRunner().SudoCmd(cd_cmd+RunBash, false)
 	if err != nil {
 		return errors.Errorf("Exec Bash: %s err:%s", RunBash, err)
 	}

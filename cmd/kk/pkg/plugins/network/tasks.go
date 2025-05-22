@@ -22,10 +22,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"text/template"
+	"time"
+
+	"github.com/kubesphere/kubekey/v3/cmd/kk/apis/kubekey/v1alpha2"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/utils"
 
 	"github.com/pkg/errors"
 
-	"github.com/kubesphere/kubekey/v3/cmd/kk/apis/kubekey/v1alpha2"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/common"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/action"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/connector"
@@ -34,7 +39,7 @@ import (
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/plugins/network/templates"
 )
 
-//go:embed cilium-1.11.6.tgz
+//go:embed cilium-1.15.3.tgz hybridnet-0.6.6.tgz templates/calico.tmpl
 
 var f embed.FS
 
@@ -47,7 +52,7 @@ func (r *ReleaseCiliumChart) Execute(runtime connector.Runtime) error {
 	if err != nil {
 		return err
 	}
-	chartFile, err := f.Open("cilium-1.11.6.tgz")
+	chartFile, err := f.Open(fmt.Sprintf("cilium-%s.tgz", strings.TrimPrefix(v1alpha2.DefaultCiliumVersion, "v")))
 	if err != nil {
 		return err
 	}
@@ -89,7 +94,7 @@ func (d *DeployCilium) Execute(runtime connector.Runtime) error {
 		"--set operator.image.override=%s "+
 		"--set operator.replicas=1 "+
 		"--set image.override=%s "+
-		"--set ipam.operator.clusterPoolIPv4PodCIDR=%s", ciliumOperatorImage, ciliumImage, d.KubeConf.Cluster.Network.KubePodsCIDR)
+		"--set \"ipam.operator.clusterPoolIPv4PodCIDRList={%s}\"", ciliumOperatorImage, ciliumImage, d.KubeConf.Cluster.Network.KubePodsCIDR)
 
 	if d.KubeConf.Cluster.Kubernetes.DisableKubeProxy {
 		cmd = fmt.Sprintf("%s --set kubeProxyReplacement=strict --set k8sServiceHost=%s --set k8sServicePort=%d", cmd, d.KubeConf.Cluster.ControlPlaneEndpoint.Address, d.KubeConf.Cluster.ControlPlaneEndpoint.Port)
@@ -304,5 +309,178 @@ func (c *ChmodKubectlKo) Execute(runtime connector.Runtime) error {
 		fmt.Sprintf("chmod +x %s", filepath.Join(common.BinDir, templates.KubectlKo.Name())), false); err != nil {
 		return errors.Wrap(errors.WithStack(err), "chmod +x kubectl-ko failed")
 	}
+	return nil
+}
+
+// ReleaseHybridnetChart is used to release hybridnet chart to local path
+type ReleaseHybridnetChart struct {
+	common.KubeAction
+}
+
+func (r *ReleaseHybridnetChart) Execute(runtime connector.Runtime) error {
+	fs, err := os.Create(fmt.Sprintf("%s/hybridnet.tgz", runtime.GetWorkDir()))
+	if err != nil {
+		return err
+	}
+	chartFile, err := f.Open("hybridnet-0.6.6.tgz")
+	if err != nil {
+		return err
+	}
+	defer chartFile.Close()
+
+	_, err = io.Copy(fs, chartFile)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// SyncHybridnetChart is used to sync hybridnet chart to contronplane
+type SyncHybridnetChart struct {
+	common.KubeAction
+}
+
+func (s *SyncHybridnetChart) Execute(runtime connector.Runtime) error {
+	src := filepath.Join(runtime.GetWorkDir(), "hybridnet.tgz")
+	dst := filepath.Join(common.TmpDir, "hybridnet.tgz")
+	if err := runtime.GetRunner().Scp(src, dst); err != nil {
+		return errors.Wrap(errors.WithStack(err), fmt.Sprintf("sync hybridnet chart failed"))
+	}
+	if _, err := runtime.GetRunner().SudoCmd(fmt.Sprintf("mv %s/hybridnet.tgz /etc/kubernetes", common.TmpDir), true); err != nil {
+		return errors.Wrap(errors.WithStack(err), "sync hybrident chart failed")
+	}
+	return nil
+}
+
+type DeployHybridnet struct {
+	common.KubeAction
+}
+
+func (d *DeployHybridnet) Execute(runtime connector.Runtime) error {
+
+	cmd := fmt.Sprintf("/usr/local/bin/helm upgrade --install hybridnet /etc/kubernetes/hybridnet.tgz --namespace kube-system "+
+		"--set images.hybridnet.image=%s/%s "+
+		"--set images.hybridnet.tag=%s "+
+		"--set images.registryURL=%s ",
+		images.GetImage(runtime, d.KubeConf, "hybridnet").ImageNamespace(),
+		images.GetImage(runtime, d.KubeConf, "hybridnet").Repo,
+		images.GetImage(runtime, d.KubeConf, "hybridnet").Tag,
+		images.GetImage(runtime, d.KubeConf, "hybridnet").ImageRegistryAddr(),
+	)
+
+	if d.KubeConf.Cluster.Network.Hybridnet.EnableInit() {
+		cmd = fmt.Sprintf("%s --set init.cidr=%s", cmd, d.KubeConf.Cluster.Network.KubePodsCIDR)
+	} else {
+		cmd = fmt.Sprintf("%s --set init=null", cmd)
+	}
+
+	if !d.KubeConf.Cluster.Network.Hybridnet.NetworkPolicy() {
+		cmd = fmt.Sprintf("%s --set daemon.enableNetworkPolicy=false", cmd)
+	}
+
+	if d.KubeConf.Cluster.Network.Hybridnet.DefaultNetworkType != "" {
+		cmd = fmt.Sprintf("%s --set defaultNetworkType=%s", cmd, d.KubeConf.Cluster.Network.Hybridnet.DefaultNetworkType)
+	}
+
+	if d.KubeConf.Cluster.Network.Hybridnet.PreferBGPInterfaces != "" {
+		cmd = fmt.Sprintf("%s --set daemon.preferBGPInterfaces=%s", cmd, d.KubeConf.Cluster.Network.Hybridnet.PreferBGPInterfaces)
+	}
+
+	if d.KubeConf.Cluster.Network.Hybridnet.PreferVlanInterfaces != "" {
+		cmd = fmt.Sprintf("%s --set daemon.preferVlanInterfaces=%s", cmd, d.KubeConf.Cluster.Network.Hybridnet.PreferVlanInterfaces)
+	}
+
+	if d.KubeConf.Cluster.Network.Hybridnet.PreferVxlanInterfaces != "" {
+		cmd = fmt.Sprintf("%s --set daemon.preferVxlanInterfaces=%s", cmd, d.KubeConf.Cluster.Network.Hybridnet.PreferVxlanInterfaces)
+	}
+
+	if _, err := runtime.GetRunner().SudoCmd(cmd, true); err != nil {
+		return errors.Wrap(errors.WithStack(err), "deploy hybridnet failed")
+	}
+
+	if len(d.KubeConf.Cluster.Network.Hybridnet.Networks) != 0 {
+		templateAction := action.Template{
+			Template: templates.HybridnetNetworks,
+			Dst:      filepath.Join(common.KubeConfigDir, templates.HybridnetNetworks.Name()),
+			Data: util.Data{
+				"Networks": d.KubeConf.Cluster.Network.Hybridnet.Networks,
+			},
+		}
+
+		templateAction.Init(nil, nil)
+		if err := templateAction.Execute(runtime); err != nil {
+			return err
+		}
+
+		for i := 0; i < 30; i++ {
+			fmt.Println("Waiting for hybridnet webhook running ... ", i+1)
+			time.Sleep(10 * time.Second)
+			output, _ := runtime.GetRunner().SudoCmd("/usr/local/bin/kubectl get pod -n kube-system -l  app=hybridnet,component=webhook | grep Running", false)
+			if strings.Contains(output, "1/1") {
+				time.Sleep(50 * time.Second)
+				break
+			}
+		}
+
+		if _, err := runtime.GetRunner().SudoCmd("/usr/local/bin/kubectl apply -f /etc/kubernetes/hybridnet-networks.yaml", true); err != nil {
+			return errors.Wrap(errors.WithStack(err), "apply hybridnet networks failed")
+		}
+	}
+	return nil
+}
+
+type GenerateCalicoManifests struct {
+	common.KubeAction
+}
+
+func (g *GenerateCalicoManifests) Execute(runtime connector.Runtime) error {
+	calicoContent, err := f.ReadFile("templates/calico.tmpl")
+	if err != nil {
+		return err
+	}
+	calico := template.Must(template.New("network-plugin.yaml").Funcs(utils.FuncMap).Parse(string(calicoContent)))
+
+	IPv6Support := false
+	kubePodsV6CIDR := ""
+	kubePodsCIDR := strings.Split(g.KubeConf.Cluster.Network.KubePodsCIDR, ",")
+	if len(kubePodsCIDR) == 2 {
+		IPv6Support = true
+		kubePodsV6CIDR = kubePodsCIDR[1]
+	}
+
+	templateAction := action.Template{
+		Template: calico,
+		Dst:      filepath.Join(common.KubeConfigDir, calico.Name()),
+		Data: util.Data{
+			"KubePodsV4CIDR":          strings.Split(g.KubeConf.Cluster.Network.KubePodsCIDR, ",")[0],
+			"KubePodsV6CIDR":          kubePodsV6CIDR,
+			"CalicoCniImage":          images.GetImage(runtime, g.KubeConf, "calico-cni").ImageName(),
+			"CalicoNodeImage":         images.GetImage(runtime, g.KubeConf, "calico-node").ImageName(),
+			"CalicoFlexvolImage":      images.GetImage(runtime, g.KubeConf, "calico-flexvol").ImageName(),
+			"CalicoControllersImage":  images.GetImage(runtime, g.KubeConf, "calico-kube-controllers").ImageName(),
+			"CalicoTyphaImage":        images.GetImage(runtime, g.KubeConf, "calico-typha").ImageName(),
+			"TyphaEnabled":            len(runtime.GetHostsByRole(common.K8s)) > 50 || g.KubeConf.Cluster.Network.Calico.EnableTypha(),
+			"VethMTU":                 g.KubeConf.Cluster.Network.Calico.VethMTU,
+			"NodeCidrMaskSize":        g.KubeConf.Cluster.Kubernetes.NodeCidrMaskSize,
+			"IPIPMode":                g.KubeConf.Cluster.Network.Calico.IPIPMode,
+			"VXLANMode":               g.KubeConf.Cluster.Network.Calico.VXLANMode,
+			"ConatinerManagerIsIsula": g.KubeConf.Cluster.Kubernetes.ContainerManager == "isula",
+			"IPV4POOLNATOUTGOING":     g.KubeConf.Cluster.Network.Calico.EnableIPV4POOL_NAT_OUTGOING(),
+			"IPV6POOLNATOUTGOING":     g.KubeConf.Cluster.Network.Calico.EnableIPV6POOL_NAT_OUTGOING(),
+			"DefaultIPPOOL":           g.KubeConf.Cluster.Network.Calico.EnableDefaultIPPOOL(),
+			"IPv6Support":             IPv6Support,
+			"NodeCidrMaskSizeIPv6":    g.KubeConf.Cluster.Kubernetes.NodeCidrMaskSizeIPv6,
+			"TyphaReplicas":           g.KubeConf.Cluster.Network.Calico.Typha.Replicas,
+			"TyphaNodeSelector":       g.KubeConf.Cluster.Network.Calico.Typha.NodeSelector,
+			"ControllerReplicas":      g.KubeConf.Cluster.Network.Calico.Controller.Replicas,
+			"ControllerNodeSelector":  g.KubeConf.Cluster.Network.Calico.Controller.NodeSelector,
+		},
+	}
+	templateAction.Init(nil, nil)
+	if err := templateAction.Execute(runtime); err != nil {
+		return err
+	}
+
 	return nil
 }

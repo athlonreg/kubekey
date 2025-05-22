@@ -34,7 +34,7 @@ import (
 func NewArtifactExportPipeline(runtime *common.ArtifactRuntime) error {
 	m := []module.Module{
 		&confirm.CheckFileExistModule{FileName: runtime.Arg.Output},
-		&images.CopyImagesToLocalModule{},
+		&images.CopyImagesToLocalModule{ImageStartIndex: runtime.Arg.ImageStartIndex, ImageTransport: runtime.Arg.ImageTransport},
 		&binaries.ArtifactBinariesModule{},
 		&artifact.RepositoryModule{},
 		&artifact.ArchiveModule{},
@@ -58,7 +58,7 @@ func NewArtifactExportPipeline(runtime *common.ArtifactRuntime) error {
 func NewK3sArtifactExportPipeline(runtime *common.ArtifactRuntime) error {
 	m := []module.Module{
 		&confirm.CheckFileExistModule{FileName: runtime.Arg.Output},
-		&images.CopyImagesToLocalModule{},
+		&images.CopyImagesToLocalModule{ImageStartIndex: runtime.Arg.ImageStartIndex},
 		&binaries.K3sArtifactBinariesModule{},
 		&artifact.RepositoryModule{},
 		&artifact.ArchiveModule{},
@@ -82,7 +82,7 @@ func NewK3sArtifactExportPipeline(runtime *common.ArtifactRuntime) error {
 func NewK8eArtifactExportPipeline(runtime *common.ArtifactRuntime) error {
 	m := []module.Module{
 		&confirm.CheckFileExistModule{FileName: runtime.Arg.Output},
-		&images.CopyImagesToLocalModule{},
+		&images.CopyImagesToLocalModule{ImageStartIndex: runtime.Arg.ImageStartIndex},
 		&binaries.K8eArtifactBinariesModule{},
 		&artifact.RepositoryModule{},
 		&artifact.ArchiveModule{},
@@ -117,7 +117,7 @@ func ArtifactExport(args common.ArtifactArgument, downloadCmd string) error {
 	}
 
 	if len(runtime.Spec.KubernetesDistributions) == 0 {
-		return errors.New("the length of kubernetes distributions can't be 0")
+		return NewArtifactExportPipeline(runtime)
 	}
 
 	pre := runtime.Spec.KubernetesDistributions[0].Type
@@ -137,9 +137,7 @@ func ArtifactExport(args common.ArtifactArgument, downloadCmd string) error {
 			return err
 		}
 	case common.Kubernetes:
-		if err := NewArtifactExportPipeline(runtime); err != nil {
-			return err
-		}
+		fallthrough
 	default:
 		if err := NewArtifactExportPipeline(runtime); err != nil {
 			return err

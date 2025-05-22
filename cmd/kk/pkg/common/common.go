@@ -55,17 +55,21 @@ const (
 	IPv4Regexp = "[\\d]+\\.[\\d]+\\.[\\d]+\\.[\\d]+"
 	IPv6Regexp = "[a-f0-9]{1,4}(:[a-f0-9]{1,4}){7}|[a-f0-9]{1,4}(:[a-f0-9]{1,4}){0,7}::[a-f0-9]{0,4}(:[a-f0-9]{1,4}){0,7}"
 
-	Calico  = "calico"
-	Flannel = "flannel"
-	Cilium  = "cilium"
-	Kubeovn = "kubeovn"
+	Calico    = "calico"
+	Flannel   = "flannel"
+	Cilium    = "cilium"
+	Kubeovn   = "kubeovn"
+	Hybridnet = "hybridnet"
 
 	Docker     = "docker"
+	CriDockerd = "cri-dockerd"
 	Crictl     = "crictl"
-	Conatinerd = "containerd"
+	Containerd = "containerd"
 	Crio       = "crio"
 	Isula      = "isula"
 	Runc       = "runc"
+
+	Buildx = "buildx"
 
 	// global cache key
 	// PreCheckModule
@@ -75,6 +79,7 @@ const (
 	KubeSphereVersion      = "kubeSphereVersion" // current KubeSphere version
 	ClusterNodeStatus      = "clusterNodeStatus"
 	ClusterNodeCRIRuntimes = "ClusterNodeCRIRuntimes"
+	ClusterFeatureGates    = "ClusterFeatureGates"
 	DesiredK8sVersion      = "desiredK8sVersion"
 	PlanK8sVersion         = "planK8sVersion"
 	NodeK8sVersion         = "NodeK8sVersion"
@@ -94,4 +99,7 @@ const (
 
 	// Artifact pipeline
 	Artifact = "artifact"
+
+	// Image Copy Transports
+	DockerDaemon = "docker-daemon"
 )

@@ -128,3 +128,19 @@ func (e *EnableKubeProxy) PreCheck(_ connector.Runtime) (bool, error) {
 	}
 	return false, nil
 }
+
+type EnableAudit struct {
+	KubePrepare
+}
+
+func (e *EnableAudit) PreCheck(_ connector.Runtime) (bool, error) {
+	return e.KubeConf.Cluster.Kubernetes.EnableAudit(), nil
+}
+
+type AtLeastV124 struct {
+	KubePrepare
+}
+
+func (a *AtLeastV124) PreCheck(_ connector.Runtime) (bool, error) {
+	return a.KubeConf.Cluster.Kubernetes.IsAtLeastV124(), nil
+}

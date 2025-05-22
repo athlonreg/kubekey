@@ -2,6 +2,7 @@
 name: Kubernetes-Auto-Support
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: '0 0 * * *'
 
@@ -10,23 +11,24 @@ jobs:
     runs-on: ubuntu-latest
     if: github.repository == 'kubesphere/kubekey'
     steps:
-      - uses: actions/checkout@v2
-
-      - name: Set up Go 1.19
-        uses: actions/setup-go@v3
-        with:
-          go-version: 1.19
-        id: go
+      - uses: actions/checkout@v4
 
       - name: install dependiencies
         run: |
           sudo apt update
-          sudo apt install skopeo -y 
           pip install natsort
+          
           wget https://attack-on-titan.gd2.qingstor.com/qsctl/v2.4.3/qsctl_v2.4.3_linux_amd64.tar.gz
           tar -zxvf qsctl_v2.4.3_linux_amd64.tar.gz
           mv qsctl_v2.4.3_linux_amd64 /usr/local/bin/qsctl
           rm -rf qsctl_v2.4.3_linux_amd64.tar.gz
+          
+          VERSION="1.2.2"
+          curl -LO "https://github.com/oras-project/oras/releases/download/v${VERSION}/oras_${VERSION}_linux_amd64.tar.gz"
+          mkdir -p oras-install/
+          tar -zxf oras_${VERSION}_*.tar.gz -C oras-install/
+          sudo mv oras-install/oras /usr/local/bin/
+          rm -rf oras_${VERSION}_*.tar.gz oras-install/
 
       - name: update components.json
         id: get_new_version
@@ -56,7 +58,7 @@ jobs:
         if: steps.get_new_version.outputs.UPDATE_VERSION == 'true'
 
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v4
+        uses: peter-evans/create-pull-request@v6
         with:
           commit-message: Add new kubernetes version
           committer: GitHub <noreply@github.com>

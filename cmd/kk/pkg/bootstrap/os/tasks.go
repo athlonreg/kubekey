@@ -136,7 +136,7 @@ var (
 	etcdFiles = []string{
 		"/usr/local/bin/etcd",
 		"/etc/ssl/etcd",
-		"/var/lib/etcd",
+		"/var/lib/etcd/*",
 		"/etc/etcd.env",
 	}
 	clusterFiles = []string{
@@ -149,7 +149,7 @@ var (
 		"/var/log/pods/",
 		"/var/lib/cni",
 		"/var/lib/calico",
-		"/var/lib/kubelet",
+		"/var/lib/kubelet/*",
 		"/run/calico",
 		"/run/flannel",
 		"/etc/flannel",
@@ -172,6 +172,17 @@ var (
 		"ipvsadm -C",
 		"ip link del kube-ipvs0",
 		"ip link del nodelocaldns",
+		"ip link del cni0",
+		"ip link del flannel.1",
+		"ip link del flannel-v6.1",
+		"ip link del flannel-wg",
+		"ip link del flannel-wg-v6",
+		"ip link del cilium_host",
+		"ip link del cilium_vxlan",
+		"ip link del vxlan.calico",
+		"ip link del vxlan-v6.calico",
+		"ip -br link show | grep 'cali[a-f0-9]*' | awk -F '@' '{print $1}' | xargs -r -t -n 1 ip link del",
+		"ip netns show 2>/dev/null | grep cni- | xargs -r -t -n 1 ip netns del",
 	}
 )
 
@@ -183,6 +194,15 @@ func (r *ResetNetworkConfig) Execute(runtime connector.Runtime) error {
 	for _, cmd := range networkResetCmds {
 		_, _ = runtime.GetRunner().SudoCmd(cmd, true)
 	}
+	return nil
+}
+
+type StopKubelet struct {
+	common.KubeAction
+}
+
+func (s *StopKubelet) Execute(runtime connector.Runtime) error {
+	_, _ = runtime.GetRunner().SudoCmd("systemctl disable kubelet && systemctl stop kubelet && exit 0", false)
 	return nil
 }
 
@@ -211,7 +231,7 @@ func (r *RemoveNodeFiles) Execute(runtime connector.Runtime) error {
 		"/var/log/pods/",
 		"/var/lib/cni",
 		"/var/lib/calico",
-		"/var/lib/kubelet",
+		"/var/lib/kubelet/*",
 		"/run/calico",
 		"/run/flannel",
 		"/etc/flannel",
@@ -238,6 +258,9 @@ func (r *RemoveFiles) Execute(runtime connector.Runtime) error {
 	for _, file := range clusterFiles {
 		_, _ = runtime.GetRunner().SudoCmd(fmt.Sprintf("rm -rf %s", file), true)
 	}
+	// remove pki/etcd Path if it exists, otherwise it will cause the etcd reinstallation to fail if ip change
+	pkiPath := fmt.Sprintf("%s/pki/etcd", runtime.GetWorkDir())
+	_, _ = runtime.GetRunner().SudoCmd(fmt.Sprintf("rm -rf %s", pkiPath), true)
 	return nil
 }
 
@@ -413,6 +436,10 @@ func (i *InstallPackage) Execute(runtime connector.Runtime) error {
 		pkg = i.KubeConf.Cluster.System.Rpms
 	}
 
+	if installErr := r.Update(runtime); installErr != nil {
+		return errors.Wrap(errors.WithStack(installErr), "update repository failed")
+	}
+
 	if installErr := r.Install(runtime, pkg...); installErr != nil {
 		return errors.Wrap(errors.WithStack(installErr), "install repository package failed")
 	}
@@ -480,21 +507,43 @@ func (n *NodeConfigureNtpServer) Execute(runtime connector.Runtime) error {
 		chronyService = "chrony.service"
 	}
 
+	clearOldServerCmd := fmt.Sprintf(`sed -i '/^server/d' %s`, chronyConfigFile)
+	if _, err := runtime.GetRunner().SudoCmd(clearOldServerCmd, false); err != nil {
+		return errors.Wrapf(err, "delete old servers failed, please check file %s", chronyConfigFile)
+	}
+
+	poolDisableCmd := fmt.Sprintf(`sed -i 's/^pool /#pool /g' %s`, chronyConfigFile)
+	if _, err := runtime.GetRunner().SudoCmd(poolDisableCmd, false); err != nil {
+		return errors.Wrapf(err, "set pool disable failed")
+	}
 	// if NtpServers was configured
 	for _, server := range n.KubeConf.Cluster.System.NtpServers {
 
 		serverAddr := strings.Trim(server, " \"")
-		if serverAddr == currentHost.GetName() || serverAddr == currentHost.GetInternalAddress() {
-			allowClientCmd := fmt.Sprintf(`sed -i '/#allow/ a\allow 0.0.0.0/0' %s`, chronyConfigFile)
+		fmt.Printf("ntpserver: %s, current host: %s\n", serverAddr, currentHost.GetName())
+		if serverAddr == currentHost.GetName() || serverAddr == currentHost.GetInternalIPv4Address() {
+			deleteAllowCmd := fmt.Sprintf(`sed -i '/^allow/d' %s`, chronyConfigFile)
+			if _, err := runtime.GetRunner().SudoCmd(deleteAllowCmd, false); err != nil {
+				return errors.Wrapf(err, "delete allow failed, please check file %s", chronyConfigFile)
+			}
+			allowClientCmd := fmt.Sprintf(`echo 'allow 0.0.0.0/0' >> %s`, chronyConfigFile)
 			if _, err := runtime.GetRunner().SudoCmd(allowClientCmd, false); err != nil {
 				return errors.Wrapf(err, "change host:%s chronyd conf failed, please check file %s", serverAddr, chronyConfigFile)
+			}
+			deleteLocalCmd := fmt.Sprintf(`sed -i '/^local/d' %s`, chronyConfigFile)
+			if _, err := runtime.GetRunner().SudoCmd(deleteLocalCmd, false); err != nil {
+				return errors.Wrapf(err, "delete local stratum failed, please check file %s", chronyConfigFile)
+			}
+			AddLocalCmd := fmt.Sprintf(`echo 'local stratum 10' >> %s`, chronyConfigFile)
+			if _, err := runtime.GetRunner().SudoCmd(AddLocalCmd, false); err != nil {
+				return errors.Wrapf(err, "Add local stratum 10 conf failed, please check file %s", chronyConfigFile)
 			}
 		}
 
 		// use internal ip to client chronyd server
 		for _, host := range runtime.GetAllHosts() {
 			if serverAddr == host.GetName() {
-				serverAddr = host.GetInternalAddress()
+				serverAddr = host.GetInternalIPv4Address()
 				break
 			}
 		}

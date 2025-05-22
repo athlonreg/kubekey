@@ -29,6 +29,11 @@ import (
 
 type ConfigureOSModule struct {
 	common.KubeModule
+	Skip bool
+}
+
+func (c *ConfigureOSModule) IsSkip() bool {
+	return c.Skip
 }
 
 func (c *ConfigureOSModule) Init() {
@@ -59,7 +64,8 @@ func (c *ConfigureOSModule) Init() {
 			Template: templates.InitOsScriptTmpl,
 			Dst:      filepath.Join(common.KubeScriptDir, "initOS.sh"),
 			Data: util.Data{
-				"Hosts": templates.GenerateHosts(c.Runtime, c.KubeConf),
+				"Hosts":       templates.GenerateHosts(c.Runtime, c.KubeConf),
+				"IPv6Support": templates.EnabledIPv6(c.KubeConf),
 			},
 		},
 		Parallel: true,
@@ -98,6 +104,15 @@ type ClearNodeOSModule struct {
 func (c *ClearNodeOSModule) Init() {
 	c.Name = "ClearNodeOSModule"
 
+	stopKubelet := &task.RemoteTask{
+		Name:     "StopKubelet",
+		Desc:     "Stop Kubelet",
+		Hosts:    c.Runtime.GetHostsByRole(common.Worker),
+		Prepare:  new(DeleteNode),
+		Action:   new(StopKubelet),
+		Parallel: true,
+	}
+
 	resetNetworkConfig := &task.RemoteTask{
 		Name:     "ResetNetworkConfig",
 		Desc:     "Reset os network config",
@@ -126,6 +141,7 @@ func (c *ClearNodeOSModule) Init() {
 	}
 
 	c.Tasks = []task.Interface{
+		stopKubelet,
 		resetNetworkConfig,
 		removeFiles,
 		daemonReload,

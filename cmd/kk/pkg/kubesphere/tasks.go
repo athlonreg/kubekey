@@ -26,7 +26,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	yamlV2 "gopkg.in/yaml.v2"
+	yamlV3 "gopkg.in/yaml.v3"
 
 	kubekeyapiv1alpha2 "github.com/kubesphere/kubekey/v3/cmd/kk/apis/kubekey/v1alpha2"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/common"
@@ -88,7 +88,7 @@ func (s *Setup) Execute(runtime connector.Runtime) error {
 	switch s.KubeConf.Cluster.Etcd.Type {
 	case kubekeyapiv1alpha2.KubeKey:
 		for _, host := range runtime.GetHostsByRole(common.ETCD) {
-			addrList = append(addrList, host.GetInternalAddress())
+			addrList = append(addrList, host.GetInternalIPv4Address())
 		}
 
 		caFile := "/etc/ssl/etcd/ssl/ca.pem"
@@ -105,7 +105,7 @@ func (s *Setup) Execute(runtime connector.Runtime) error {
 		}
 	case kubekeyapiv1alpha2.Kubeadm:
 		for _, host := range runtime.GetHostsByRole(common.Master) {
-			addrList = append(addrList, host.GetInternalAddress())
+			addrList = append(addrList, host.GetInternalIPv4Address())
 		}
 
 		caFile := "/etc/kubernetes/pki/etcd/ca.crt"
@@ -347,7 +347,7 @@ func (c *ConvertV2ToV3) Execute(runtime connector.Runtime) error {
 
 	clusterCfgV2 := ksv2.V2{}
 	clusterCfgV3 := ksv3.V3{}
-	if err := yamlV2.Unmarshal([]byte(configV2Str), &clusterCfgV2); err != nil {
+	if err := yamlV3.Unmarshal([]byte(configV2Str), &clusterCfgV2); err != nil {
 		return err
 	}
 
@@ -424,7 +424,7 @@ func MigrateConfig2to3(v2 *ksv2.V2, v3 *ksv3.V3) (string, error) {
 		Spec: v3,
 	}
 
-	configV3, err := yamlV2.Marshal(clusterConfiguration)
+	configV3, err := yamlV3.Marshal(clusterConfiguration)
 	if err != nil {
 		return "", err
 	}

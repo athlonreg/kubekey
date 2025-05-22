@@ -23,13 +23,43 @@ import (
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/connector"
 )
 
+type WithBuildxPlugin struct {
+	common.KubePrepare
+}
+
+func (w *WithBuildxPlugin) PreCheck(runtime connector.Runtime) (bool, error) {
+	if w.KubeConf.Arg.WithBuildx {
+		return true, nil
+	} else {
+		return false, nil
+	}
+}
+
 type DockerExist struct {
 	common.KubePrepare
 	Not bool
 }
 
 func (d *DockerExist) PreCheck(runtime connector.Runtime) (bool, error) {
-	output, err := runtime.GetRunner().SudoCmd("if [ -z $(which docker) ] || [ ! -e /var/run/docker.sock ]; "+
+	output, err := runtime.GetRunner().SudoCmd("if [ -z $(command -v docker) ] || [ ! -e /var/run/docker.sock ]; "+
+		"then echo 'not exist'; "+
+		"fi", false)
+	if err != nil {
+		return false, err
+	}
+	if strings.Contains(output, "not exist") {
+		return d.Not, nil
+	}
+	return !d.Not, nil
+}
+
+type CriDockerdExist struct {
+	common.KubePrepare
+	Not bool
+}
+
+func (d *CriDockerdExist) PreCheck(runtime connector.Runtime) (bool, error) {
+	output, err := runtime.GetRunner().SudoCmd("if [ -z $(command -v cri-dockerd) ] || [ ! -e /var/run/cri-dockerd.sock ]; "+
 		"then echo 'not exist'; "+
 		"fi", false)
 	if err != nil {
@@ -48,7 +78,7 @@ type CrictlExist struct {
 
 func (c *CrictlExist) PreCheck(runtime connector.Runtime) (bool, error) {
 	output, err := runtime.GetRunner().SudoCmd(
-		"if [ -z $(which crictl) ]; "+
+		"if [ -z $(command -v crictl) ]; "+
 			"then echo 'not exist'; "+
 			"fi", false)
 	if err != nil {
@@ -68,7 +98,7 @@ type ContainerdExist struct {
 
 func (c *ContainerdExist) PreCheck(runtime connector.Runtime) (bool, error) {
 	output, err := runtime.GetRunner().SudoCmd(
-		"if [ -z $(which containerd) ] || [ ! -e /run/containerd/containerd.sock ]; "+
+		"if [ -z $(command -v containerd) ] || [ ! -e /run/containerd/containerd.sock ]; "+
 			"then echo 'not exist'; "+
 			"fi", false)
 	if err != nil {

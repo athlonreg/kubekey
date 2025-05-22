@@ -180,8 +180,6 @@ func (g *GenerateK8eService) Execute(runtime connector.Runtime) error {
 	}
 
 	defaultKubeletArs := map[string]string{
-		"cni-conf-dir":    "/etc/cni/net.d",
-		"cni-bin-dir":     "/opt/cni/bin",
 		"kube-reserved":   "cpu=200m,memory=250Mi,ephemeral-storage=1Gi",
 		"system-reserved": "cpu=200m,memory=250Mi,ephemeral-storage=1Gi",
 		"eviction-hard":   "memory.available<5%,nodefs.available<10%",
@@ -205,7 +203,7 @@ func (g *GenerateK8eService) Execute(runtime connector.Runtime) error {
 		Data: util.Data{
 			"Server":            server,
 			"IsMaster":          host.IsRole(common.Master),
-			"NodeIP":            host.GetInternalAddress(),
+			"NodeIP":            host.GetInternalIPv4Address(),
 			"HostName":          host.GetName(),
 			"PodSubnet":         g.KubeConf.Cluster.Network.KubePodsCIDR,
 			"ServiceSubnet":     g.KubeConf.Cluster.Network.KubeServiceCIDR,
@@ -255,7 +253,7 @@ func (g *GenerateK8eServiceEnv) Execute(runtime connector.Runtime) error {
 		}
 	default:
 		for _, node := range runtime.GetHostsByRole(common.ETCD) {
-			endpoint := fmt.Sprintf("https://%s:%s", node.GetInternalAddress(), kubekeyapiv1alpha2.DefaultEtcdPort)
+			endpoint := fmt.Sprintf("https://%s:%d", node.GetInternalIPv4Address(), g.KubeConf.Cluster.Etcd.GetPort())
 			endpointsList = append(endpointsList, endpoint)
 		}
 		externalEtcd.Endpoints = endpointsList
@@ -371,67 +369,16 @@ type AddWorkerLabel struct {
 }
 
 func (a *AddWorkerLabel) Execute(runtime connector.Runtime) error {
-	host := runtime.RemoteHost()
-
-	cmd := fmt.Sprintf(
-		"/usr/local/bin/kubectl label --overwrite node %s node-role.kubernetes.io/worker=",
-		host.GetName())
-
-	if _, err := runtime.GetRunner().SudoCmd(cmd, false); err != nil {
-		return errors.Wrap(errors.WithStack(err), "add master NoSchedule taint failed")
-	}
-	return nil
-}
-
-type SyncKubeConfigToWorker struct {
-	common.KubeAction
-}
-
-func (s *SyncKubeConfigToWorker) Execute(runtime connector.Runtime) error {
-	if v, ok := s.PipelineCache.Get(common.ClusterStatus); ok {
-		cluster := v.(*K8eStatus)
-
-		createConfigDirCmd := "mkdir -p /root/.kube"
-		if _, err := runtime.GetRunner().SudoCmd(createConfigDirCmd, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "create .kube dir failed")
-		}
-
-		oldServer := "server: https://127.0.0.1:6443"
-		newServer := fmt.Sprintf("server: https://%s:%d",
-			s.KubeConf.Cluster.ControlPlaneEndpoint.Domain,
-			s.KubeConf.Cluster.ControlPlaneEndpoint.Port)
-		newKubeConfig := strings.Replace(cluster.KubeConfig, oldServer, newServer, -1)
-
-		syncKubeConfigForRootCmd := fmt.Sprintf("echo '%s' > %s", newKubeConfig, "/root/.kube/config")
-		if _, err := runtime.GetRunner().SudoCmd(syncKubeConfigForRootCmd, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "sync kube config for root failed")
-		}
-
-		userConfigDirCmd := "mkdir -p $HOME/.kube"
-		if _, err := runtime.GetRunner().Cmd(userConfigDirCmd, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "user mkdir $HOME/.kube failed")
-		}
-
-		syncKubeConfigForUserCmd := fmt.Sprintf("echo '%s' > %s", newKubeConfig, "$HOME/.kube/config")
-		if _, err := runtime.GetRunner().Cmd(syncKubeConfigForUserCmd, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "sync kube config for normal user failed")
-		}
-
-		userId, err := runtime.GetRunner().Cmd("echo $(id -u)", false)
-		if err != nil {
-			return errors.Wrap(errors.WithStack(err), "get user id failed")
-		}
-
-		userGroupId, err := runtime.GetRunner().Cmd("echo $(id -g)", false)
-		if err != nil {
-			return errors.Wrap(errors.WithStack(err), "get user group id failed")
-		}
-
-		chownKubeConfig := fmt.Sprintf("chown -R %s:%s -R $HOME/.kube", userId, userGroupId)
-		if _, err := runtime.GetRunner().SudoCmd(chownKubeConfig, false); err != nil {
-			return errors.Wrap(errors.WithStack(err), "chown user kube config failed")
+	for _, host := range runtime.GetAllHosts() {
+		if host.IsRole(common.Worker) {
+			if _, err := runtime.GetRunner().SudoCmd(fmt.Sprintf(
+				"/usr/local/bin/kubectl label --overwrite node %s node-role.kubernetes.io/worker=",
+				host.GetName()), true); err != nil {
+				return errors.Wrap(errors.WithStack(err), "add worker label failed")
+			}
 		}
 	}
+
 	return nil
 }
 

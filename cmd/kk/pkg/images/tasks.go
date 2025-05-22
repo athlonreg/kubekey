@@ -19,10 +19,11 @@ package images
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	manifestregistry "github.com/estesp/manifest-tool/v2/pkg/registry"
 	manifesttypes "github.com/estesp/manifest-tool/v2/pkg/types"
@@ -60,6 +61,7 @@ func (p *PullImage) Execute(runtime connector.Runtime) error {
 			GetImage(runtime, p.KubeConf, "cilium"),
 			GetImage(runtime, p.KubeConf, "cilium-operator-generic"),
 			GetImage(runtime, p.KubeConf, "flannel"),
+			GetImage(runtime, p.KubeConf, "flannel-cni-plugin"),
 			GetImage(runtime, p.KubeConf, "kubeovn"),
 			GetImage(runtime, p.KubeConf, "haproxy"),
 			GetImage(runtime, p.KubeConf, "kubevip"),
@@ -102,6 +104,10 @@ func GetImage(runtime connector.ModuleRuntime, kubeConf *common.KubeConf, name s
 		pauseTag = "3.8"
 		corednsTag = "1.9.3"
 	}
+	if versionutil.MustParseSemantic(kubeConf.Cluster.Kubernetes.Version).AtLeast(versionutil.MustParseSemantic("v1.26.0")) {
+		pauseTag = "3.9"
+		corednsTag = "1.9.3"
+	}
 
 	logger.Log.Debugf("pauseTag: %s, corednsTag: %s", pauseTag, corednsTag)
 
@@ -115,23 +121,25 @@ func GetImage(runtime connector.ModuleRuntime, kubeConf *common.KubeConf, name s
 
 		// network
 		"coredns":                 {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "coredns", Repo: "coredns", Tag: corednsTag, Group: kubekeyv1alpha2.K8s, Enable: true},
-		"k8s-dns-node-cache":      {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: kubekeyv1alpha2.DefaultKubeImageNamespace, Repo: "k8s-dns-node-cache", Tag: "1.15.12", Group: kubekeyv1alpha2.K8s, Enable: kubeConf.Cluster.Kubernetes.EnableNodelocaldns()},
+		"k8s-dns-node-cache":      {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: kubekeyv1alpha2.DefaultKubeImageNamespace, Repo: "k8s-dns-node-cache", Tag: "1.22.20", Group: kubekeyv1alpha2.K8s, Enable: kubeConf.Cluster.Kubernetes.EnableNodelocaldns()},
 		"calico-kube-controllers": {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "calico", Repo: "kube-controllers", Tag: kubekeyv1alpha2.DefaultCalicoVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "calico")},
 		"calico-cni":              {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "calico", Repo: "cni", Tag: kubekeyv1alpha2.DefaultCalicoVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "calico")},
 		"calico-node":             {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "calico", Repo: "node", Tag: kubekeyv1alpha2.DefaultCalicoVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "calico")},
 		"calico-flexvol":          {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "calico", Repo: "pod2daemon-flexvol", Tag: kubekeyv1alpha2.DefaultCalicoVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "calico")},
 		"calico-typha":            {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "calico", Repo: "typha", Tag: kubekeyv1alpha2.DefaultCalicoVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "calico") && len(runtime.GetHostsByRole(common.K8s)) > 50},
-		"flannel":                 {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: kubekeyv1alpha2.DefaultKubeImageNamespace, Repo: "flannel", Tag: kubekeyv1alpha2.DefaultFlannelVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "flannel")},
+		"flannel":                 {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "flannel", Repo: "flannel", Tag: kubekeyv1alpha2.DefaultFlannelVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "flannel")},
+		"flannel-cni-plugin":      {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "flannel", Repo: "flannel-cni-plugin", Tag: kubekeyv1alpha2.DefaultFlannelCniPluginVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "flannel")},
 		"cilium":                  {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "cilium", Repo: "cilium", Tag: kubekeyv1alpha2.DefaultCiliumVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "cilium")},
 		"cilium-operator-generic": {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "cilium", Repo: "operator-generic", Tag: kubekeyv1alpha2.DefaultCiliumVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "cilium")},
+		"hybridnet":               {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "hybridnetdev", Repo: "hybridnet", Tag: kubekeyv1alpha2.DefaulthybridnetVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "hybridnet")},
 		"kubeovn":                 {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "kubeovn", Repo: "kube-ovn", Tag: kubekeyv1alpha2.DefaultKubeovnVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.EqualFold(kubeConf.Cluster.Network.Plugin, "kubeovn")},
 		"multus":                  {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: kubekeyv1alpha2.DefaultKubeImageNamespace, Repo: "multus-cni", Tag: kubekeyv1alpha2.DefalutMultusVersion, Group: kubekeyv1alpha2.K8s, Enable: strings.Contains(kubeConf.Cluster.Network.Plugin, "multus")},
 		// storage
 		"provisioner-localpv": {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "openebs", Repo: "provisioner-localpv", Tag: "3.3.0", Group: kubekeyv1alpha2.Worker, Enable: false},
 		"linux-utils":         {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "openebs", Repo: "linux-utils", Tag: "3.3.0", Group: kubekeyv1alpha2.Worker, Enable: false},
 		// load balancer
-		"haproxy": {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "library", Repo: "haproxy", Tag: "2.3", Group: kubekeyv1alpha2.Worker, Enable: kubeConf.Cluster.ControlPlaneEndpoint.IsInternalLBEnabled()},
-		"kubevip": {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "plndr", Repo: "kube-vip", Tag: "v0.5.0", Group: kubekeyv1alpha2.Master, Enable: kubeConf.Cluster.ControlPlaneEndpoint.IsInternalLBEnabledVip()},
+		"haproxy": {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "library", Repo: "haproxy", Tag: "2.9.6-alpine", Group: kubekeyv1alpha2.Worker, Enable: kubeConf.Cluster.ControlPlaneEndpoint.IsInternalLBEnabled()},
+		"kubevip": {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: "plndr", Repo: "kube-vip", Tag: "v0.7.2", Group: kubekeyv1alpha2.Master, Enable: kubeConf.Cluster.ControlPlaneEndpoint.IsInternalLBEnabledVip()},
 		// kata-deploy
 		"kata-deploy": {RepoAddr: kubeConf.Cluster.Registry.PrivateRegistry, Namespace: kubekeyv1alpha2.DefaultKubeImageNamespace, Repo: "kata-deploy", Tag: "stable", Group: kubekeyv1alpha2.Worker, Enable: kubeConf.Cluster.Kubernetes.EnableKataDeploy()},
 		// node-feature-discovery
@@ -142,11 +150,16 @@ func GetImage(runtime connector.ModuleRuntime, kubeConf *common.KubeConf, name s
 	if kubeConf.Cluster.Registry.NamespaceOverride != "" {
 		image.NamespaceOverride = kubeConf.Cluster.Registry.NamespaceOverride
 	}
+	if kubeConf.Cluster.Registry.NamespaceRewrite != nil {
+		image.NamespaceRewrite = kubeConf.Cluster.Registry.NamespaceRewrite
+	}
 	return image
 }
 
 type SaveImages struct {
 	common.ArtifactAction
+	ImageStartIndex int
+	ImageTransport  string
 }
 
 func (s *SaveImages) Execute(runtime connector.Runtime) error {
@@ -156,7 +169,10 @@ func (s *SaveImages) Execute(runtime connector.Runtime) error {
 	if err := coreutil.Mkdir(dirName); err != nil {
 		return errors.Wrapf(errors.WithStack(err), "mkdir %s failed", dirName)
 	}
-	for _, image := range s.Manifest.Spec.Images {
+	for index, image := range s.Manifest.Spec.Images {
+		if s.ImageStartIndex > index {
+			continue
+		}
 		if err := validateImageName(image); err != nil {
 			return err
 		}
@@ -167,7 +183,7 @@ func (s *SaveImages) Execute(runtime connector.Runtime) error {
 			auth = v
 		}
 
-		srcName := fmt.Sprintf("docker://%s", image)
+		srcName := formatImageName(s.ImageTransport, image)
 		for _, platform := range s.Manifest.Spec.Arches {
 			arch, variant := ParseArchVariant(platform)
 			// placeholder
@@ -175,11 +191,11 @@ func (s *SaveImages) Execute(runtime connector.Runtime) error {
 				variant = "-" + variant
 			}
 			// Ex:
-			// oci:./kubekey/artifact/images:kubesphere:kube-apiserver:v1.21.5-amd64
-			// oci:./kubekey/artifact/images:kubesphere:kube-apiserver:v1.21.5-arm-v7
-			destName := fmt.Sprintf("oci:%s:%s:%s-%s%s", dirName, imageFullName[1], imageFullName[2], arch, variant)
-			logger.Log.Infof("Source: %s", srcName)
-			logger.Log.Infof("Destination: %s", destName)
+			// oci:./kubekey/artifact/images:docker.io/kubesphere/kube-apiserver:v1.21.5-amd64
+			// oci:./kubekey/artifact/images:docker.io/kubesphere/kube-apiserver:v1.21.5-arm-v7
+			destName := fmt.Sprintf("oci:%s:%s-%s%s", dirName, image, arch, variant)
+			logger.Log.Infof("[%d]Source: %s", index, srcName)
+			logger.Log.Infof("[%d]Destination: %s", index, destName)
 
 			o := &CopyImageOptions{
 				srcImage: &srcImageOptions{
@@ -204,8 +220,18 @@ func (s *SaveImages) Execute(runtime connector.Runtime) error {
 				},
 			}
 
-			if err := o.Copy(); err != nil {
-				return err
+			// Copy image
+			// retry 3 times
+			for i := 0; i < 3; i++ {
+				if err := o.Copy(); err != nil {
+					if i == 2 {
+						return errors.Wrapf(err, "copy image %s failed", srcName)
+					}
+					logger.Log.Warnf("copy image %s failed, retrying", srcName)
+					time.Sleep(5 * time.Second)
+					continue
+				}
+				break
 			}
 		}
 	}
@@ -214,7 +240,8 @@ func (s *SaveImages) Execute(runtime connector.Runtime) error {
 
 type CopyImagesToRegistry struct {
 	common.KubeAction
-	ImagesPath string
+	ImagesPath     string
+	ImageTransport string
 }
 
 func (c *CopyImagesToRegistry) Execute(runtime connector.Runtime) error {
@@ -225,7 +252,7 @@ func (c *CopyImagesToRegistry) Execute(runtime connector.Runtime) error {
 		imagesPath = filepath.Join(runtime.GetWorkDir(), "images")
 	}
 
-	indexFile, err := ioutil.ReadFile(filepath.Join(imagesPath, "index.json"))
+	indexFile, err := os.ReadFile(filepath.Join(imagesPath, "index.json"))
 	if err != nil {
 		return errors.Errorf("read index.json failed: %s", err)
 	}
@@ -242,18 +269,22 @@ func (c *CopyImagesToRegistry) Execute(runtime connector.Runtime) error {
 		ref := m.Annotations.RefName
 
 		// Ex:
-		// calico:cni:v3.20.0-amd64
-		nameArr := strings.Split(ref, ":")
-		if len(nameArr) != 3 {
+		// docker.io/calico/cni:v3.20.0-amd64
+		repoAddr, namespace, imageName, imageTag, err := parseImageFullName(ref)
+		if err != nil {
 			return errors.Errorf("invalid ref name: %s", ref)
 		}
 
+		if c.ImageTransport != common.DockerDaemon {
+			repoAddr = c.KubeConf.Cluster.Registry.PrivateRegistry
+		}
 		image := Image{
-			RepoAddr:          c.KubeConf.Cluster.Registry.PrivateRegistry,
-			Namespace:         nameArr[0],
-			NamespaceOverride: c.KubeConf.Cluster.Registry.NamespaceOverride,
-			Repo:              nameArr[1],
-			Tag:               nameArr[2],
+			RepoAddr:          repoAddr,
+			Namespace:         namespace,
+			NamespaceOverride: "",
+			Repo:              imageName,
+			Tag:               imageTag,
+			NamespaceRewrite:  c.KubeConf.Cluster.Registry.NamespaceRewrite,
 		}
 
 		uniqueImage, p := ParseImageWithArchTag(image.ImageName())
@@ -282,12 +313,17 @@ func (c *CopyImagesToRegistry) Execute(runtime connector.Runtime) error {
 		}
 
 		auth := new(registry.DockerRegistryEntry)
-		if config, ok := auths[c.KubeConf.Cluster.Registry.PrivateRegistry]; ok {
+		if config, ok := auths[c.KubeConf.Cluster.Registry.GetHost()]; ok {
 			auth = config
 		}
 
 		srcName := fmt.Sprintf("oci:%s:%s", imagesPath, ref)
-		destName := fmt.Sprintf("docker://%s", image.ImageName())
+		destName := formatImageName(c.ImageTransport, image.ImageName())
+
+		if c.ImageTransport == common.DockerDaemon {
+			destName = formatImageName(c.ImageTransport, uniqueImage)
+		}
+
 		logger.Log.Infof("Source: %s", srcName)
 		logger.Log.Infof("Destination: %s", destName)
 
@@ -314,8 +350,16 @@ func (c *CopyImagesToRegistry) Execute(runtime connector.Runtime) error {
 			},
 		}
 
-		if err := o.Copy(); err != nil {
-			return errors.Wrap(errors.WithStack(err), fmt.Sprintf("copy image %s to %s failed", srcName, destName))
+		retry, maxRetry := 0, 5
+		for ; retry < maxRetry; retry++ {
+			if err := o.Copy(); err == nil {
+				break
+			} else {
+				fmt.Println(errors.WithStack(err))
+			}
+		}
+		if retry >= maxRetry {
+			return errors.Wrap(errors.WithStack(err), fmt.Sprintf("copy image %s to %s failed, retry %d", srcName, destName, maxRetry))
 		}
 	}
 
@@ -340,8 +384,8 @@ func (p *PushManifest) Execute(_ connector.Runtime) error {
 
 	auths := registry.DockerRegistryAuthEntries(p.KubeConf.Cluster.Registry.Auths)
 	auth := new(registry.DockerRegistryEntry)
-	if _, ok := auths[p.KubeConf.Cluster.Registry.PrivateRegistry]; ok {
-		auth = auths[p.KubeConf.Cluster.Registry.PrivateRegistry]
+	if _, ok := auths[p.KubeConf.Cluster.Registry.GetHost()]; ok {
+		auth = auths[p.KubeConf.Cluster.Registry.GetHost()]
 	}
 
 	for imageName, platforms := range list {
@@ -351,7 +395,7 @@ func (p *PushManifest) Execute(_ connector.Runtime) error {
 		logger.Log.Infof("Push multi-arch manifest list: %s", imageName)
 		// todo: the function can't support specify a certs dir
 		digest, length, err := manifestregistry.PushManifestList(auth.Username, auth.Password, manifestSpec,
-			false, true, auth.PlainHTTP, "")
+			true, true, auth.PlainHTTP, "")
 		if err != nil {
 			return errors.Wrap(errors.WithStack(err), fmt.Sprintf("push image %s multi-arch manifest failed", imageName))
 		}

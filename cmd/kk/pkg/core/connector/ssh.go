@@ -22,7 +22,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"path"
@@ -37,6 +36,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/common"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/logger"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/util"
 )
@@ -187,7 +187,7 @@ func validateOptions(cfg Cfg) (Cfg, error) {
 	}
 
 	if len(cfg.PrivateKey) == 0 && len(cfg.KeyFile) > 0 {
-		content, err := ioutil.ReadFile(cfg.KeyFile)
+		content, err := os.ReadFile(cfg.KeyFile)
 		if err != nil {
 			return cfg, errors.Wrapf(err, "Failed to read keyfile %q", cfg.KeyFile)
 		}
@@ -256,6 +256,10 @@ func (c *connection) session() (*ssh.Session, error) {
 	err = sess.RequestPty("xterm", 100, 50, modes)
 	if err != nil {
 		return nil, err
+	}
+
+	if err := sess.Setenv("LANG", "en_US.UTF-8"); err != nil { // try make sure work with english language environments
+		logger.Log.Debugf("Failed to enforce LANG=en_US.UTF-8. (Error: %v)", err)
 	}
 
 	return sess, nil
@@ -462,7 +466,7 @@ func (c *connection) Scp(src, dst string, host Host) error {
 }
 
 func (c *connection) copyDirToRemote(src, dst string, scrErr *scpErr, host Host) {
-	localFiles, err := ioutil.ReadDir(src)
+	localFiles, err := os.ReadDir(src)
 	if err != nil {
 		logger.Log.Errorf("read local path dir %s failed %v", src, err)
 		scrErr.err = err
@@ -585,6 +589,9 @@ func (c *connection) MkDirAll(path string, mode string, host Host) error {
 		mode = "775"
 	}
 	mkDstDir := fmt.Sprintf("mkdir -p -m %s %s || true", mode, path)
+	if strings.Contains(path, common.TmpDir) {
+		mkDstDir = fmt.Sprintf("mkdir -p  %s && chmod -R  %s  %s || true", path, mode, common.TmpDir)
+	}
 	if _, _, err := c.Exec(SudoPrefix(mkDstDir), host); err != nil {
 		return err
 	}

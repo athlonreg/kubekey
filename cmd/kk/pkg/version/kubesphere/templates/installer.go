@@ -255,6 +255,7 @@ rules:
   - '*'
 - apiGroups:
   - kubeedge.kubesphere.io
+  - edgeruntime.kubesphere.io
   resources:
   - '*'
   verbs:
@@ -273,6 +274,12 @@ rules:
   - '*'
 - apiGroups:
   - application.kubesphere.io
+  resources:
+  - '*'
+  verbs:
+  - '*'
+- apiGroups:
+  - alerting.kubesphere.io
   resources:
   - '*'
   verbs:
@@ -315,7 +322,7 @@ spec:
       containers:
       - name: installer
         image: {{ .Repo }}/ks-installer:{{ .Tag }}
-        imagePullPolicy: Always
+        imagePullPolicy: IfNotPresent
         volumeMounts:
         - mountPath: /etc/localtime
           name: host-time

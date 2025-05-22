@@ -38,6 +38,7 @@ type CreateClusterOptions struct {
 	EnableKubeSphere    bool
 	KubeSphere          string
 	LocalStorage        bool
+	SkipInstallAddons   bool
 	SkipPullImages      bool
 	SkipPushImages      bool
 	SecurityEnhancement bool
@@ -45,6 +46,8 @@ type CreateClusterOptions struct {
 	DownloadCmd         string
 	Artifact            string
 	InstallPackages     bool
+	WithBuildx          bool
+	OnlyEtcd            bool
 
 	localStorageChanged bool
 }
@@ -99,7 +102,7 @@ func (o *CreateClusterOptions) Complete(cmd *cobra.Command, args []string) error
 
 func (o *CreateClusterOptions) Validate(_ *cobra.Command, _ []string) error {
 	switch o.ContainerManager {
-	case common.Docker, common.Conatinerd, common.Crio, common.Isula:
+	case common.Docker, common.Containerd, common.Crio, common.Isula:
 	default:
 		return fmt.Errorf("unsupport container runtime [%s]", o.ContainerManager)
 	}
@@ -122,6 +125,7 @@ func (o *CreateClusterOptions) Run() error {
 		Artifact:            o.Artifact,
 		InstallPackages:     o.InstallPackages,
 		Namespace:           o.CommonOptions.Namespace,
+		SkipInstallAddons:   o.SkipInstallAddons,
 	}
 
 	if o.localStorageChanged {
@@ -139,6 +143,7 @@ func (o *CreateClusterOptions) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVarP(&o.EnableKubeSphere, "with-kubesphere", "", false, fmt.Sprintf("Deploy a specific version of kubesphere (default %s)", kubesphere.Latest().Version))
 	cmd.Flags().BoolVarP(&o.SkipPullImages, "skip-pull-images", "", false, "Skip pre pull images")
 	cmd.Flags().BoolVarP(&o.SkipPushImages, "skip-push-images", "", false, "Skip pre push images")
+	cmd.Flags().BoolVarP(&o.SkipInstallAddons, "skip-install-addons", "", false, "Skip install addons")
 	cmd.Flags().BoolVarP(&o.SecurityEnhancement, "with-security-enhancement", "", false, "Security enhancement")
 	cmd.Flags().StringVarP(&o.ContainerManager, "container-manager", "", "docker", "Container runtime: docker, crio, containerd and isula.")
 	cmd.Flags().StringVarP(&o.DownloadCmd, "download-cmd", "", "curl -L -o %s %s",

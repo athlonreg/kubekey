@@ -19,7 +19,6 @@ package artifact
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +30,7 @@ import (
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/connector"
 	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/logger"
 	coreutil "github.com/kubesphere/kubekey/v3/cmd/kk/pkg/core/util"
+	"github.com/kubesphere/kubekey/v3/cmd/kk/pkg/files"
 )
 
 type DownloadISOFile struct {
@@ -45,6 +45,17 @@ func (d *DownloadISOFile) Execute(runtime connector.Runtime) error {
 
 		fileName := fmt.Sprintf("%s-%s-%s.iso", sys.Id, sys.Version, sys.Arch)
 		filePath := filepath.Join(runtime.GetWorkDir(), fileName)
+
+		checksumEqual, err := files.SHA256CheckEqual(filePath, sys.Repository.Iso.Checksum)
+		if err != nil {
+			return err
+		}
+		if checksumEqual {
+			logger.Log.Infof("Skip download exists iso file %s", fileName)
+			d.Manifest.Spec.OperatingSystems[i].Repository.Iso.LocalPath = filePath
+			continue
+		}
+
 		getCmd := d.Manifest.Arg.DownloadCommand(filePath, sys.Repository.Iso.Url)
 
 		cmd := exec.Command("/bin/sh", "-c", getCmd)
@@ -110,6 +121,11 @@ func (a *ArchiveDependencies) Execute(runtime connector.Runtime) error {
 		return errors.Wrapf(errors.WithStack(err), "archive %s failed", src)
 	}
 
+	// skip remove artifact if --skip-remove-artifact
+	if a.Manifest.Arg.SkipRemoveArtifact {
+		return nil
+	}
+
 	// remove the src directory
 	if err := os.RemoveAll(src); err != nil {
 		return errors.Wrapf(errors.WithStack(err), "remove %s failed", src)
@@ -141,7 +157,7 @@ func (m *Md5Check) Execute(runtime connector.Runtime) error {
 		return nil
 	}
 
-	oldMd5, err := ioutil.ReadFile(oldFile)
+	oldMd5, err := os.ReadFile(oldFile)
 	if err != nil {
 		return errors.Wrapf(errors.WithStack(err), "read old md5 file %s failed", oldFile)
 	}

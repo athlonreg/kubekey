@@ -18,7 +18,7 @@ package common
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
 	"github.com/pkg/errors"
@@ -29,12 +29,15 @@ import (
 )
 
 type ArtifactArgument struct {
-	ManifestFile    string
-	Output          string
-	CriSocket       string
-	Debug           bool
-	IgnoreErr       bool
-	DownloadCommand func(path, url string) string
+	ManifestFile       string
+	Output             string
+	CriSocket          string
+	Debug              bool
+	IgnoreErr          bool
+	DownloadCommand    func(path, url string) string
+	ImageStartIndex    int
+	ImageTransport     string
+	SkipRemoveArtifact bool
 }
 
 type ArtifactRuntime struct {
@@ -54,7 +57,7 @@ func NewArtifactRuntime(arg ArtifactArgument) (*ArtifactRuntime, error) {
 		return nil, errors.Wrap(err, "Failed to look up current directory")
 	}
 
-	fileByte, err := ioutil.ReadFile(fp)
+	fileByte, err := os.ReadFile(fp)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Failed to read file %s", fp)
 	}

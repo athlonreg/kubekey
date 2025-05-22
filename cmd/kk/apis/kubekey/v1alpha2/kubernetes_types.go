@@ -16,7 +16,10 @@
 
 package v1alpha2
 
-import "k8s.io/apimachinery/pkg/runtime"
+import (
+	"k8s.io/apimachinery/pkg/runtime"
+	versionutil "k8s.io/apimachinery/pkg/util/version"
+)
 
 // Kubernetes contains the configuration for the cluster
 type Kubernetes struct {
@@ -29,6 +32,7 @@ type Kubernetes struct {
 	MaxPods                int      `yaml:"maxPods" json:"maxPods,omitempty"`
 	PodPidsLimit           int      `yaml:"podPidsLimit" json:"podPidsLimit,omitempty"`
 	NodeCidrMaskSize       int      `yaml:"nodeCidrMaskSize" json:"nodeCidrMaskSize,omitempty"`
+	NodeCidrMaskSizeIPv6   int      `yaml:"nodeCidrMaskSizeIPv6" json:"nodeCidrMaskSizeIPv6,omitempty"`
 	ApiserverCertExtraSans []string `yaml:"apiserverCertExtraSans" json:"apiserverCertExtraSans,omitempty"`
 	ProxyMode              string   `yaml:"proxyMode" json:"proxyMode,omitempty"`
 	AutoRenewCerts         *bool    `yaml:"autoRenewCerts" json:"autoRenewCerts,omitempty"`
@@ -46,6 +50,7 @@ type Kubernetes struct {
 	FeatureGates             map[string]bool      `yaml:"featureGates" json:"featureGates,omitempty"`
 	KubeletConfiguration     runtime.RawExtension `yaml:"kubeletConfiguration" json:"kubeletConfiguration,omitempty"`
 	KubeProxyConfiguration   runtime.RawExtension `yaml:"kubeProxyConfiguration" json:"kubeProxyConfiguration,omitempty"`
+	Audit                    Audit                `yaml:"audit" json:"audit,omitempty"`
 }
 
 // Kata contains the configuration for the kata in cluster
@@ -55,6 +60,11 @@ type Kata struct {
 
 // NodeFeatureDiscovery contains the configuration for the node-feature-discovery in cluster
 type NodeFeatureDiscovery struct {
+	Enabled *bool `yaml:"enabled" json:"enabled,omitempty"`
+}
+
+// Audit contains the configuration for the kube-apiserver audit in cluster
+type Audit struct {
 	Enabled *bool `yaml:"enabled" json:"enabled,omitempty"`
 }
 
@@ -82,9 +92,32 @@ func (k *Kubernetes) EnableNodeFeatureDiscovery() bool {
 	return *k.NodeFeatureDiscovery.Enabled
 }
 
+// EnableAutoRenewCerts is used to determine whether to enable AutoRenewCerts.
 func (k *Kubernetes) EnableAutoRenewCerts() bool {
 	if k.AutoRenewCerts == nil {
 		return false
 	}
 	return *k.AutoRenewCerts
+}
+
+// EnableAudit is used to determine whether to enable kube-apiserver audit.
+func (k *Kubernetes) EnableAudit() bool {
+	if k.Audit.Enabled == nil {
+		return false
+	}
+	return *k.AutoRenewCerts
+}
+
+// IsAtLeastV124 is used to determine whether the k8s version is greater than v1.24.
+func (k *Kubernetes) IsAtLeastV124() bool {
+	parsedVersion, err := versionutil.ParseGeneric(k.Version)
+	if err != nil {
+		return false
+	}
+
+	if parsedVersion.AtLeast(versionutil.MustParseSemantic("v1.24.0")) {
+		return true
+	}
+
+	return false
 }
