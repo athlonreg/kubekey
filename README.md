@@ -25,7 +25,7 @@ Use KubeKey in the following three scenarios.
 ### Linux Distributions
 
 * **Ubuntu**  *16.04, 18.04, 20.04, 22.04*
-* **Debian**  *Bullseye, Buster, Stretch*
+* **Debian**  *Bookworm, Bullseye, Buster, Stretch*
 * **CentOS/RHEL**  *7*
 * **AlmaLinux**  *9.0*
 * **SUSE Linux Enterprise Server** *15*
@@ -407,6 +407,11 @@ Thanks goes to these wonderful people ([emoji key](https://allcontributors.org/d
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/xLexih"><img src="https://avatars.githubusercontent.com/u/67009568?v=4?s=100" width="100px;" alt="Lexih"/><br /><sub><b>Lexih</b></sub></a><br /><a href="https://github.com/kubesphere/kubekey/commits?author=xLexih" title="Documentation">📖</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/LazyBusyYang"><img src="https://avatars.githubusercontent.com/u/26729379?v=4?s=100" width="100px;" alt="LazyBusyYang"/><br /><sub><b>LazyBusyYang</b></sub></a><br /><a href="https://github.com/kubesphere/kubekey/commits?author=LazyBusyYang" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/endlesstravel"><img src="https://avatars.githubusercontent.com/u/10757838?v=4?s=100" width="100px;" alt="Yx"/><br /><sub><b>Yx</b></sub></a><br /><a href="https://github.com/kubesphere/kubekey/commits?author=endlesstravel" title="Code">💻</a></td>
+    </tr>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Kevinz857"><img src="https://avatars.githubusercontent.com/u/20255934?v=4?s=100" width="100px;" alt="Kevin"/><br /><sub><b>Kevin</b></sub></a><br /><a href="https://github.com/kubesphere/kubekey/commits?author=Kevinz857" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/zmoon460"><img src="https://avatars.githubusercontent.com/u/42328751?v=4?s=100" width="100px;" alt="zmoon460"/><br /><sub><b>zmoon460</b></sub></a><br /><a href="https://github.com/kubesphere/kubekey/commits?author=zmoon460" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://blog.yhan219.com"><img src="https://avatars.githubusercontent.com/u/12593660?v=4?s=100" width="100px;" alt="yhan219"/><br /><sub><b>yhan219</b></sub></a><br /><a href="https://github.com/kubesphere/kubekey/commits?author=yhan219" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>
